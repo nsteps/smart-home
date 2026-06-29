@@ -47,15 +47,9 @@
     line: "127.0.1.1 {{ pi_hostname }}"
     create: true
 
-- name: Read current timezone
-  ansible.builtin.command: cat /etc/timezone
-  register: current_timezone
-  changed_when: false
-  failed_when: false
-
 - name: Set timezone
-  ansible.builtin.command: "timedatectl set-timezone {{ server_timezone }}"
-  when: current_timezone.stdout != server_timezone
+  community.general.timezone:
+    name: "{{ server_timezone }}"
 
 - name: Ensure avahi-daemon is enabled
   ansible.builtin.service:
@@ -78,23 +72,24 @@
     state: started
   when: base_install_unattended_upgrades | bool
 
-- name: Reset UFW to defaults
-  ansible.builtin.command: ufw --force reset
-  when: base_enable_ufw | bool
-
-- name: Set default incoming deny
-  ansible.builtin.command: ufw default deny incoming
-  when: base_enable_ufw | bool
-
-- name: Set default outgoing allow
-  ansible.builtin.command: ufw default allow outgoing
+- name: Set UFW default policies
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
   when: base_enable_ufw | bool
 
 - name: Allow configured TCP ports through UFW
-  ansible.builtin.command: "ufw allow {{ item }}/tcp"
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
   loop: "{{ base_ufw_allowed_tcp_ports }}"
   when: base_enable_ufw | bool
 
 - name: Enable UFW
-  ansible.builtin.command: ufw --force enable
+  community.general.ufw:
+    state: enabled
   when: base_enable_ufw | bool

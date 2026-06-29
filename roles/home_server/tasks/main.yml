@@ -116,16 +116,13 @@
     group: "{{ server_gid }}"
     mode: "0644"
 
-- name: Pull container images
-  ansible.builtin.command: docker compose pull
-  args:
-    chdir: "{{ base_dir }}"
-  changed_when: false
-
-- name: Start container stack
-  ansible.builtin.command: docker compose up -d
-  args:
-    chdir: "{{ base_dir }}"
+- name: Deploy the container stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ base_dir }}"
+    state: present
+    pull: missing
+    remove_orphans: true
+  register: compose_up
 
 - name: Wait for Home Assistant port to open
   ansible.builtin.wait_for:
@@ -178,13 +175,6 @@
     delay: 5
   when: grafana_enabled | bool
 
-- name: Show stack status
-  ansible.builtin.command: docker compose ps
-  args:
-    chdir: "{{ base_dir }}"
-  register: compose_ps
-  changed_when: false
-
 - name: Print stack status
   ansible.builtin.debug:
-    var: compose_ps.stdout_lines
+    msg: "{{ compose_up.containers | default([]) | map(attribute='Name') | zip(compose_up.containers | default([]) | map(attribute='State')) | list }}"
