@@ -28,11 +28,15 @@ provisioner:
   inventory:
     group_vars:
       all:
+        # molecule does not load the project's group_vars/all.yml, so the
+        # variables the base/docker roles need are provided here explicitly.
+        pi_hostname: molecule-test
+        server_timezone: Etc/UTC
+        server_user: root
         # Keep the test fast and self-contained.
         base_do_full_upgrade: false
         base_install_unattended_upgrades: false
         base_enable_ufw: false
-        server_user: root
 
 verifier:
   name: ansible
