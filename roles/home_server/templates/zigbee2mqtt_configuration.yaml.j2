@@ -1,8 +1,12 @@
-homeassistant: true
-permit_join: {{ 'true' if zigbee_permit_join else 'false' }}
+# Managed by Ansible. Zigbee2MQTT 2.x schema.
+version: 4
+
+homeassistant:
+  enabled: {{ 'true' if homeassistant_enabled else 'false' }}
 
 frontend:
   enabled: {{ 'true' if zigbee_frontend_enabled else 'false' }}
+  port: 8080
 
 mqtt:
   server: mqtt://mosquitto:1883
@@ -15,3 +19,9 @@ serial:
 
 advanced:
   network_key: GENERATE
+  log_level: info
+
+# permit_join is no longer a configuration.yaml option in Zigbee2MQTT 2.x.
+# Enable pairing from the frontend ("Permit join") or via MQTT:
+#   topic:   zigbee2mqtt/bridge/request/permit_join
+#   payload: {"time": 254}

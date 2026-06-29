@@ -12,15 +12,19 @@ server_lan_host: "{{ ansible_host | default(pi_hostname ~ '.local') }}"
 base_do_full_upgrade: true
 base_install_unattended_upgrades: false
 base_enable_ufw: false
-base_ufw_allowed_tcp_ports:
-  - 22
-  - 1883
-  - 3000
-  - 8080
-  - 8081
-  - 8123
-  - 9090
-  - 9100
+# Derived from enabled services so the firewall never blocks a UI you turned on.
+# SSH (22) is always allowed; override this list explicitly if you need to.
+base_ufw_allowed_tcp_ports: >-
+  {{ [22]
+     + ([mosquitto_port] if mosquitto_enabled | bool else [])
+     + ([homeassistant_port] if homeassistant_enabled | bool else [])
+     + ([zigbee2mqtt_port] if zigbee2mqtt_enabled | bool else [])
+     + ([speedtest_tracker_port] if speedtest_tracker_enabled | bool else [])
+     + ([prometheus_port] if prometheus_enabled | bool else [])
+     + ([grafana_port] if grafana_enabled | bool else [])
+     + ([cadvisor_port] if cadvisor_enabled | bool else [])
+     + ([node_exporter_port] if node_exporter_enabled | bool else [])
+     + ([uptime_kuma_port] if uptime_kuma_enabled | bool else []) }}
 
 # ===== Services =====
 homeassistant_enabled: true
@@ -56,6 +60,11 @@ grafana_allow_sign_up: false
 speedtest_app_key: "base64:QqeUW+J4g4Yt7M4Ai9J4W0F3Y+0pJhn/Wt8SeYV9u2k="
 speedtest_schedule: "11 */4 * * *"
 speedtest_prune_days: 180
+# Prometheus scrape of Speedtest Tracker. Off by default because the /prometheus
+# endpoint must first be enabled in the app (Settings -> Data Platforms -> Prometheus).
+# After enabling it there, set this true (and a token below if you restricted access).
+speedtest_metrics_enabled: false
+speedtest_metrics_bearer_token: ""
 
 # ===== Prometheus =====
 prometheus_retention_time: 30d

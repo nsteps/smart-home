@@ -127,12 +127,23 @@
   args:
     chdir: "{{ base_dir }}"
 
-- name: Wait for Home Assistant
+- name: Wait for Home Assistant port to open
   ansible.builtin.wait_for:
     host: 127.0.0.1
     port: "{{ homeassistant_port }}"
-    timeout: 300
+    timeout: 600
     delay: 5
+  when: homeassistant_enabled | bool
+
+- name: Wait for Home Assistant HTTP to become ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ homeassistant_port }}/"
+    status_code: [200, 302, 401]
+    follow_redirects: none
+  register: ha_ready
+  retries: 30
+  delay: 10
+  until: ha_ready.status is defined and ha_ready.status in [200, 302, 401]
   when: homeassistant_enabled | bool
 
 - name: Wait for Zigbee2MQTT UI

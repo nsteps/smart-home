@@ -7,11 +7,19 @@ scrape_configs:
       - targets:
           - localhost:9090
 
-{% if speedtest_tracker_enabled | bool %}
+{% if speedtest_tracker_enabled | bool and speedtest_metrics_enabled | bool %}
+  # Requires enabling the Prometheus integration in Speedtest Tracker settings
+  # (Settings -> Data Platforms -> Prometheus). Until then this target is DOWN,
+  # so it's gated behind speedtest_metrics_enabled (default false).
   - job_name: speedtest-tracker
     scrape_interval: 60s
     scrape_timeout: 10s
     metrics_path: /prometheus
+{% if speedtest_metrics_bearer_token | default('') | length > 0 %}
+    authorization:
+      type: Bearer
+      credentials: {{ speedtest_metrics_bearer_token | quote }}
+{% endif %}
     static_configs:
       - targets:
           - speedtest-tracker:80
