@@ -41,6 +41,17 @@
     enabled: true
     state: started
 
+- name: Configure Docker daemon options
+  ansible.builtin.copy:
+    content: "{{ docker_daemon_options | to_nice_json }}\n"
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+  when: (docker_daemon_options | default({})) | length > 0
+  notify: Restart docker
+
+- name: Apply Docker daemon config before deploying the stack
+  ansible.builtin.meta: flush_handlers
+
 - name: Add server user to docker group
   ansible.builtin.user:
     name: "{{ server_user }}"

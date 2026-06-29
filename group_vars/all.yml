@@ -8,6 +8,15 @@ server_gid: 1000
 base_dir: /opt/home-server
 server_lan_host: "{{ ansible_host | default(pi_hostname ~ '.local') }}"
 
+# ===== Docker daemon =====
+# Written to /etc/docker/daemon.json when non-empty.
+# mtu < 1500 fixes stalled image-layer pulls on double-NAT/PPPoE links
+# (large packets get black-holed by broken Path-MTU-Discovery).
+# Set to {} to leave Docker defaults.
+docker_daemon_options:
+  mtu: 1280
+  max-concurrent-downloads: 1
+
 # ===== Base system =====
 base_do_full_upgrade: true
 base_install_unattended_upgrades: false
@@ -29,7 +38,7 @@ base_ufw_allowed_tcp_ports: >-
 # ===== Services =====
 homeassistant_enabled: true
 mosquitto_enabled: true
-zigbee2mqtt_enabled: true
+zigbee2mqtt_enabled: false
 speedtest_tracker_enabled: true
 prometheus_enabled: true
 grafana_enabled: true
@@ -96,9 +105,9 @@ mosquitto_image: eclipse-mosquitto:2.0.22
 zigbee2mqtt_image: ghcr.io/koenkk/zigbee2mqtt:2.12.0
 speedtest_tracker_image: lscr.io/linuxserver/speedtest-tracker:1.14.4
 prometheus_image: prom/prometheus:v3.12.0
-grafana_image: grafana/grafana-oss:13.1.0
-cadvisor_image: gcr.io/cadvisor/cadvisor:v0.56.2
-node_exporter_image: prom/node-exporter:v1.11.1
+grafana_image: grafana/grafana-oss:13.0.2
+cadvisor_image: ghcr.io/google/cadvisor:v0.53.0
+node_exporter_image: quay.io/prometheus/node-exporter:v1.11.1
 # Optional services (disabled by default) — pin to an exact version before enabling:
 uptime_kuma_image: louislam/uptime-kuma:1
 tailscale_image: tailscale/tailscale:stable
