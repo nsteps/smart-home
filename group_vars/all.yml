@@ -1,0 +1,92 @@
+---
+# ===== Host =====
+pi_hostname: pi-home
+server_timezone: Europe/Moscow
+server_user: "{{ ansible_user | default('pi') }}"
+server_uid: 1000
+server_gid: 1000
+base_dir: /opt/home-server
+server_lan_host: "{{ ansible_host | default(pi_hostname ~ '.local') }}"
+
+# ===== Base system =====
+base_do_full_upgrade: true
+base_install_unattended_upgrades: false
+base_enable_ufw: false
+base_ufw_allowed_tcp_ports:
+  - 22
+  - 1883
+  - 3000
+  - 8080
+  - 8081
+  - 8123
+  - 9090
+  - 9100
+
+# ===== Services =====
+homeassistant_enabled: true
+mosquitto_enabled: true
+zigbee2mqtt_enabled: true
+speedtest_tracker_enabled: true
+prometheus_enabled: true
+grafana_enabled: true
+cadvisor_enabled: true
+node_exporter_enabled: true
+uptime_kuma_enabled: false
+tailscale_enabled: false
+
+# ===== Ports =====
+homeassistant_port: 8123
+mosquitto_port: 1883
+zigbee2mqtt_port: 8080
+speedtest_tracker_port: 8081
+prometheus_port: 9090
+grafana_port: 3000
+cadvisor_port: 8088
+node_exporter_port: 9100
+uptime_kuma_port: 3001
+
+# ===== Grafana =====
+grafana_admin_user: admin
+grafana_admin_password: change-me-now
+grafana_allow_sign_up: false
+
+# ===== Speedtest Tracker =====
+# Generate a new key if you want:
+# echo -n 'base64:'; openssl rand -base64 32
+speedtest_app_key: "base64:QqeUW+J4g4Yt7M4Ai9J4W0F3Y+0pJhn/Wt8SeYV9u2k="
+speedtest_schedule: "11 */4 * * *"
+speedtest_prune_days: 180
+
+# ===== Prometheus =====
+prometheus_retention_time: 30d
+
+# ===== Zigbee2MQTT =====
+# auto = first path from /dev/serial/by-id/*
+zigbee_serial_port: auto
+# Often ember for Sonoff ZBDongle-E, zstack for Sonoff ZBDongle-P.
+zigbee_adapter: ""
+zigbee_permit_join: false
+zigbee_frontend_enabled: true
+
+# ===== MQTT =====
+# For easiest first start this is left open in LAN.
+# Later you should switch allow_anonymous to false and add users.
+mosquitto_allow_anonymous: true
+
+# ===== Tailscale =====
+tailscale_authkey: ""
+tailscale_advertise_exit_node: false
+
+# ===== Images =====
+# Pinned for reproducibility (verified 2026-06). Bump tags deliberately, never use :latest/:stable here.
+homeassistant_image: ghcr.io/home-assistant/home-assistant:2026.6
+mosquitto_image: eclipse-mosquitto:2.0.22
+zigbee2mqtt_image: ghcr.io/koenkk/zigbee2mqtt:2.12.0
+speedtest_tracker_image: lscr.io/linuxserver/speedtest-tracker:1.14.4
+prometheus_image: prom/prometheus:v3.12.0
+grafana_image: grafana/grafana-oss:13.1.0
+cadvisor_image: gcr.io/cadvisor/cadvisor:v0.56.2
+node_exporter_image: prom/node-exporter:v1.11.1
+# Optional services (disabled by default) — pin to an exact version before enabling:
+uptime_kuma_image: louislam/uptime-kuma:1
+tailscale_image: tailscale/tailscale:stable

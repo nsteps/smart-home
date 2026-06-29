@@ -1,0 +1,231 @@
+services:
+{% if homeassistant_enabled | bool %}
+  homeassistant:
+    image: {{ homeassistant_image }}
+    container_name: homeassistant
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    environment:
+      TZ: {{ server_timezone }}
+    volumes:
+      - ./homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+      - /run/dbus:/run/dbus:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+{% endif %}
+
+{% if mosquitto_enabled | bool %}
+  mosquitto:
+    image: {{ mosquitto_image }}
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "{{ mosquitto_port }}:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+{% endif %}
+
+{% if zigbee2mqtt_enabled | bool %}
+  zigbee2mqtt:
+    image: {{ zigbee2mqtt_image }}
+    container_name: zigbee2mqtt
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    ports:
+      - "{{ zigbee2mqtt_port }}:8080"
+    environment:
+      TZ: {{ server_timezone }}
+    volumes:
+      - ./zigbee2mqtt/data:/app/data
+      - /run/udev:/run/udev:ro
+    devices:
+      - "{{ zigbee_serial_port_effective }}:/dev/ttyACM0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+{% endif %}
+
+{% if speedtest_tracker_enabled | bool %}
+  speedtest-tracker:
+    image: {{ speedtest_tracker_image }}
+    container_name: speedtest-tracker
+    restart: unless-stopped
+    ports:
+      - "{{ speedtest_tracker_port }}:80"
+    environment:
+      PUID: "{{ server_uid }}"
+      PGID: "{{ server_gid }}"
+      APP_KEY: "{{ speedtest_app_key }}"
+      APP_URL: "http://{{ server_lan_host }}:{{ speedtest_tracker_port }}"
+      DB_CONNECTION: sqlite
+      APP_TIMEZONE: "{{ server_timezone }}"
+      SPEEDTEST_SCHEDULE: "{{ speedtest_schedule }}"
+      PRUNE_RESULTS_OLDER_THAN: "{{ speedtest_prune_days }}"
+    volumes:
+      - speedtest_config:/config
+      - speedtest_keys:/config/keys
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+{% endif %}
+
+{% if prometheus_enabled | bool %}
+  prometheus:
+    image: {{ prometheus_image }}
+    container_name: prometheus
+    restart: unless-stopped
+    depends_on:
+{% if speedtest_tracker_enabled | bool %}
+      - speedtest-tracker
+{% endif %}
+{% if cadvisor_enabled | bool %}
+      - cadvisor
+{% endif %}
+{% if node_exporter_enabled | bool %}
+      - node-exporter
+{% endif %}
+    ports:
+      - "{{ prometheus_port }}:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time={{ prometheus_retention_time }}
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+{% endif %}
+
+{% if grafana_enabled | bool %}
+  grafana:
+    image: {{ grafana_image }}
+    container_name: grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    ports:
+      - "{{ grafana_port }}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: "{{ grafana_admin_user }}"
+      GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
+      GF_USERS_ALLOW_SIGN_UP: "{{ 'true' if grafana_allow_sign_up else 'false' }}"
+      TZ: "{{ server_timezone }}"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+{% endif %}
+
+{% if cadvisor_enabled | bool %}
+  cadvisor:
+    image: {{ cadvisor_image }}
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "{{ cadvisor_port }}:8080"
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+{% endif %}
+
+{% if node_exporter_enabled | bool %}
+  node-exporter:
+    image: {{ node_exporter_image }}
+    container_name: node-exporter
+    restart: unless-stopped
+    ports:
+      - "{{ node_exporter_port }}:9100"
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+{% endif %}
+
+{% if uptime_kuma_enabled | bool %}
+  uptime-kuma:
+    image: {{ uptime_kuma_image }}
+    container_name: uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "{{ uptime_kuma_port }}:3001"
+    volumes:
+      - uptime_kuma_data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+{% endif %}
+
+{% if tailscale_enabled | bool %}
+  tailscale:
+    image: {{ tailscale_image }}
+    container_name: tailscale
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      TS_AUTHKEY: "{{ tailscale_authkey }}"
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_EXTRA_ARGS: "{% if tailscale_advertise_exit_node | bool %}--advertise-exit-node{% endif %}"
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+{% endif %}
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  speedtest_config:
+  speedtest_keys:
+  prometheus_data:
+  grafana_data:
+{% if uptime_kuma_enabled | bool %}
+  uptime_kuma_data:
+{% endif %}
+{% if tailscale_enabled | bool %}
+  tailscale_state:
+{% endif %}

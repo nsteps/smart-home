@@ -1,0 +1,6 @@
+all:
+  hosts:
+    pi:
+      ansible_host: 192.168.3.50
+      ansible_user: nick
+      ansible_python_interpreter: /usr/bin/python3

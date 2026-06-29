@@ -1,0 +1,17 @@
+homeassistant: true
+permit_join: {{ 'true' if zigbee_permit_join else 'false' }}
+
+frontend:
+  enabled: {{ 'true' if zigbee_frontend_enabled else 'false' }}
+
+mqtt:
+  server: mqtt://mosquitto:1883
+
+serial:
+  port: /dev/ttyACM0
+{% if zigbee_adapter | length > 0 %}
+  adapter: {{ zigbee_adapter | quote }}
+{% endif %}
+
+advanced:
+  network_key: GENERATE

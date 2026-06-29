@@ -1,0 +1,26 @@
+# OS
+.DS_Store
+
+# Ansible
+*.retry
+*.log
+.vault_pass
+.vault_pass.txt
+vault_pass*
+
+# Local inventory (contains real host IPs / users) — commit hosts.yml.example instead
+inventory/hosts.yml
+
+# Python / virtualenv (if used locally)
+.venv/
+__pycache__/
+*.pyc
+
+# Molecule / test artifacts
+.molecule/
+.cache/
+.pytest_cache/
+
+# Galaxy-installed collections/roles (pinned via requirements.yml instead)
+collections/
+roles/galaxy/

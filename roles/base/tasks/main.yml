@@ -1,0 +1,100 @@
+---
+- name: Ensure Debian family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == "Debian"
+    fail_msg: "Этот playbook рассчитан на Raspberry Pi OS / Debian."
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Optionally run full upgrade
+  ansible.builtin.apt:
+    upgrade: dist
+    update_cache: true
+  when: base_do_full_upgrade | bool
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - acl
+      - avahi-daemon
+      - ca-certificates
+      - curl
+      - git
+      - gnupg
+      - jq
+      - lsb-release
+      - nano
+      - net-tools
+      - python3
+      - python3-pip
+      - rsync
+      - ufw
+    state: present
+    update_cache: true
+
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ pi_hostname }}"
+
+- name: Ensure hostname is present in /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s+'
+    line: "127.0.1.1 {{ pi_hostname }}"
+    create: true
+
+- name: Read current timezone
+  ansible.builtin.command: cat /etc/timezone
+  register: current_timezone
+  changed_when: false
+  failed_when: false
+
+- name: Set timezone
+  ansible.builtin.command: "timedatectl set-timezone {{ server_timezone }}"
+  when: current_timezone.stdout != server_timezone
+
+- name: Ensure avahi-daemon is enabled
+  ansible.builtin.service:
+    name: avahi-daemon
+    enabled: true
+    state: started
+
+- name: Install unattended-upgrades packages
+  ansible.builtin.apt:
+    name:
+      - unattended-upgrades
+      - apt-listchanges
+    state: present
+  when: base_install_unattended_upgrades | bool
+
+- name: Enable unattended-upgrades
+  ansible.builtin.service:
+    name: unattended-upgrades
+    enabled: true
+    state: started
+  when: base_install_unattended_upgrades | bool
+
+- name: Reset UFW to defaults
+  ansible.builtin.command: ufw --force reset
+  when: base_enable_ufw | bool
+
+- name: Set default incoming deny
+  ansible.builtin.command: ufw default deny incoming
+  when: base_enable_ufw | bool
+
+- name: Set default outgoing allow
+  ansible.builtin.command: ufw default allow outgoing
+  when: base_enable_ufw | bool
+
+- name: Allow configured TCP ports through UFW
+  ansible.builtin.command: "ufw allow {{ item }}/tcp"
+  loop: "{{ base_ufw_allowed_tcp_ports }}"
+  when: base_enable_ufw | bool
+
+- name: Enable UFW
+  ansible.builtin.command: ufw --force enable
+  when: base_enable_ufw | bool

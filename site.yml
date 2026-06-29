@@ -1,0 +1,10 @@
+---
+- name: Provision Raspberry Pi home server
+  hosts: all
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: base
+    - role: docker
+    - role: home_server
