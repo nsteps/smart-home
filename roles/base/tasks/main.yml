@@ -39,6 +39,9 @@
 - name: Set hostname
   ansible.builtin.hostname:
     name: "{{ pi_hostname }}"
+  # Skipped under molecule: Docker bind-mounts /etc/hostname, so hostnamed
+  # cannot change it ("Device or resource busy"). Runs normally on the Pi.
+  tags: molecule-notest
 
 - name: Ensure hostname is present in /etc/hosts
   ansible.builtin.lineinfile:

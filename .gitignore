@@ -12,10 +12,23 @@ vault_pass*
 # Local inventory (contains real host IPs / users) — commit hosts.yml.example instead
 inventory/hosts.yml
 
+# Editor / tool backups (vault.yml.save etc. may contain plaintext secrets!)
+*.save
+*~
+*.swp
+*.orig
+*.bak
+
 # Python / virtualenv (if used locally)
 .venv/
+venv/
 __pycache__/
 *.pyc
+
+# Stray virtualenv dirs created by mangled shell commands — keep them out
+/#/
+/conda/
+/python,/
 
 # Molecule / test artifacts
 .molecule/
