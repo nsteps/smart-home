@@ -1,0 +1,28 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Docker CLI is available
+      ansible.builtin.command: docker --version
+      changed_when: false
+
+    - name: Docker compose plugin is available
+      ansible.builtin.command: docker compose version
+      changed_when: false
+
+    - name: Collect service facts
+      ansible.builtin.service_facts:
+
+    - name: Docker service is installed
+      ansible.builtin.assert:
+        that:
+          - "'docker.service' in ansible_facts.services"
+        fail_msg: docker.service was not installed by the docker role
+
+    - name: Server user is in the docker group
+      ansible.builtin.command: "id -nG {{ server_user }}"
+      register: user_groups
+      changed_when: false
+      failed_when: "'docker' not in user_groups.stdout.split()"

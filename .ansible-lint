@@ -1,0 +1,14 @@
+---
+# Start lenient so CI is green on real breakage, not style nits.
+# Ratchet up to `profile: moderate` / `safety` once the baseline is clean.
+profile: basic
+
+exclude_paths:
+  - .github/
+  - .molecule/
+  - vault.yml
+  - vault.example.yml
+
+# Global var names are intentional in this project (no role var prefixes).
+skip_list:
+  - var-naming[no-role-prefix]

@@ -1,0 +1,38 @@
+---
+# Tests the OS-level provisioning (base + docker roles) for convergence and
+# idempotence inside a systemd-enabled Debian 12 container.
+# The full service stack (home_server) is validated on the real Pi, not here —
+# it needs a Zigbee dongle and pulls multi-GB images.
+role_name_check: 1
+
+driver:
+  name: docker
+
+platforms:
+  - name: smarthome-debian12
+    image: geerlingguy/docker-debian12-ansible:latest
+    command: /usr/sbin/init
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: ../../roles
+  config_options:
+    defaults:
+      interpreter_python: auto_silent
+  inventory:
+    group_vars:
+      all:
+        # Keep the test fast and self-contained.
+        base_do_full_upgrade: false
+        base_install_unattended_upgrades: false
+        base_enable_ufw: false
+        server_user: root
+
+verifier:
+  name: ansible
