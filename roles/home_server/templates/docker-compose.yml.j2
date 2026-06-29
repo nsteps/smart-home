@@ -60,25 +60,41 @@ services:
         max-file: "3"
 {% endif %}
 
-{% if speedtest_tracker_enabled | bool %}
-  speedtest-tracker:
-    image: {{ speedtest_tracker_image }}
-    container_name: speedtest-tracker
+{% if speedtest_exporter_enabled | bool %}
+  speedtest-exporter:
+    image: {{ speedtest_exporter_image }}
+    container_name: speedtest-exporter
     restart: unless-stopped
     ports:
-      - "{{ speedtest_tracker_port }}:80"
+      - "{{ speedtest_exporter_port }}:9798"
     environment:
-      PUID: "{{ server_uid }}"
-      PGID: "{{ server_gid }}"
-      APP_KEY: "{{ speedtest_app_key }}"
-      APP_URL: "http://{{ server_lan_host }}:{{ speedtest_tracker_port }}"
-      DB_CONNECTION: sqlite
-      APP_TIMEZONE: "{{ server_timezone }}"
-      SPEEDTEST_SCHEDULE: "{{ speedtest_schedule }}"
-      PRUNE_RESULTS_OLDER_THAN: "{{ speedtest_prune_days }}"
+      TZ: "{{ server_timezone }}"
+      SPEEDTEST_PORT: "9798"
+      SPEEDTEST_TIMEOUT: "{{ speedtest_exporter_timeout }}"
+{% if speedtest_exporter_server_id | default('') | length > 0 %}
+      SPEEDTEST_SERVER: "{{ speedtest_exporter_server_id }}"
+{% endif %}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+{% endif %}
+
+{% if blackbox_exporter_enabled | bool %}
+  blackbox-exporter:
+    image: {{ blackbox_exporter_image }}
+    container_name: blackbox-exporter
+    restart: unless-stopped
+    # NET_RAW lets the container send ICMP echo (ping) probes.
+    cap_add:
+      - NET_RAW
+    ports:
+      - "{{ blackbox_exporter_port }}:9115"
+    command:
+      - --config.file=/etc/blackbox_exporter/config.yml
     volumes:
-      - speedtest_config:/config
-      - speedtest_keys:/config/keys
+      - ./blackbox/config.yml:/etc/blackbox_exporter/config.yml:ro
     logging:
       driver: json-file
       options:
@@ -92,8 +108,11 @@ services:
     container_name: prometheus
     restart: unless-stopped
     depends_on:
-{% if speedtest_tracker_enabled | bool %}
-      - speedtest-tracker
+{% if speedtest_exporter_enabled | bool %}
+      - speedtest-exporter
+{% endif %}
+{% if blackbox_exporter_enabled | bool %}
+      - blackbox-exporter
 {% endif %}
 {% if cadvisor_enabled | bool %}
       - cadvisor
@@ -219,8 +238,6 @@ services:
 volumes:
   mosquitto_data:
   mosquitto_log:
-  speedtest_config:
-  speedtest_keys:
   prometheus_data:
   grafana_data:
 {% if uptime_kuma_enabled | bool %}

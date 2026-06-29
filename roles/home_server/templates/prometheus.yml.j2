@@ -7,22 +7,39 @@ scrape_configs:
       - targets:
           - localhost:9090
 
-{% if speedtest_tracker_enabled | bool and speedtest_metrics_enabled | bool %}
-  # Requires enabling the Prometheus integration in Speedtest Tracker settings
-  # (Settings -> Data Platforms -> Prometheus). Until then this target is DOWN,
-  # so it's gated behind speedtest_metrics_enabled (default false).
-  - job_name: speedtest-tracker
-    scrape_interval: 60s
-    scrape_timeout: 10s
-    metrics_path: /prometheus
-{% if speedtest_metrics_bearer_token | default('') | length > 0 %}
-    authorization:
-      type: Bearer
-      credentials: {{ speedtest_metrics_bearer_token | quote }}
-{% endif %}
+{% if speedtest_exporter_enabled | bool %}
+  # Each scrape triggers a real Ookla speed test, so the scrape interval IS the
+  # test cadence. Keep it coarse (speedtest_scrape_interval) and give the scrape
+  # enough time to finish (test timeout + 10s).
+  - job_name: speedtest-exporter
+    scrape_interval: {{ speedtest_scrape_interval }}
+    scrape_timeout: {{ speedtest_exporter_timeout | int + 10 }}s
+    metrics_path: /metrics
     static_configs:
       - targets:
-          - speedtest-tracker:80
+          - speedtest-exporter:9798
+{% endif %}
+
+{% if blackbox_exporter_enabled | bool %}
+  # Continuous ICMP probes via blackbox-exporter. Targets are passed to the
+  # exporter and the address is rewritten to the exporter itself.
+  - job_name: blackbox-icmp
+    scrape_interval: {{ blackbox_scrape_interval }}
+    metrics_path: /probe
+    params:
+      module: [icmp]
+    static_configs:
+      - targets:
+{% for target in blackbox_probe_targets %}
+          - {{ target }}
+{% endfor %}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
 {% endif %}
 
 {% if cadvisor_enabled | bool %}

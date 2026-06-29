@@ -50,6 +50,7 @@
     - { path: "{{ base_dir }}/mosquitto/config" }
     - { path: "{{ base_dir }}/zigbee2mqtt/data" }
     - { path: "{{ base_dir }}/prometheus" }
+    - { path: "{{ base_dir }}/blackbox" }
     - { path: "{{ base_dir }}/grafana/provisioning/datasources" }
     - { path: "{{ base_dir }}/grafana/provisioning/dashboards" }
     - { path: "{{ base_dir }}/grafana/dashboards" }
@@ -80,6 +81,15 @@
     group: "{{ server_gid }}"
     mode: "0644"
   when: prometheus_enabled | bool
+
+- name: Render Blackbox exporter config
+  ansible.builtin.template:
+    src: blackbox.yml.j2
+    dest: "{{ base_dir }}/blackbox/config.yml"
+    owner: "{{ server_uid }}"
+    group: "{{ server_gid }}"
+    mode: "0644"
+  when: blackbox_exporter_enabled | bool
 
 - name: Render Grafana datasource provisioning
   ansible.builtin.template:
@@ -151,13 +161,21 @@
     delay: 5
   when: zigbee2mqtt_enabled | bool
 
-- name: Wait for Speedtest Tracker
+- name: Wait for Speedtest exporter
   ansible.builtin.wait_for:
     host: 127.0.0.1
-    port: "{{ speedtest_tracker_port }}"
-    timeout: 240
+    port: "{{ speedtest_exporter_port }}"
+    timeout: 180
     delay: 5
-  when: speedtest_tracker_enabled | bool
+  when: speedtest_exporter_enabled | bool
+
+- name: Wait for Blackbox exporter
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ blackbox_exporter_port }}"
+    timeout: 180
+    delay: 5
+  when: blackbox_exporter_enabled | bool
 
 - name: Wait for Prometheus
   ansible.builtin.wait_for:

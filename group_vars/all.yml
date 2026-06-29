@@ -28,7 +28,8 @@ base_ufw_allowed_tcp_ports: >-
      + ([mosquitto_port] if mosquitto_enabled | bool else [])
      + ([homeassistant_port] if homeassistant_enabled | bool else [])
      + ([zigbee2mqtt_port] if zigbee2mqtt_enabled | bool else [])
-     + ([speedtest_tracker_port] if speedtest_tracker_enabled | bool else [])
+     + ([speedtest_exporter_port] if speedtest_exporter_enabled | bool else [])
+     + ([blackbox_exporter_port] if blackbox_exporter_enabled | bool else [])
      + ([prometheus_port] if prometheus_enabled | bool else [])
      + ([grafana_port] if grafana_enabled | bool else [])
      + ([cadvisor_port] if cadvisor_enabled | bool else [])
@@ -39,7 +40,8 @@ base_ufw_allowed_tcp_ports: >-
 homeassistant_enabled: true
 mosquitto_enabled: true
 zigbee2mqtt_enabled: false
-speedtest_tracker_enabled: true
+speedtest_exporter_enabled: true
+blackbox_exporter_enabled: true
 prometheus_enabled: true
 grafana_enabled: true
 cadvisor_enabled: true
@@ -51,7 +53,8 @@ tailscale_enabled: false
 homeassistant_port: 8123
 mosquitto_port: 1883
 zigbee2mqtt_port: 8080
-speedtest_tracker_port: 8081
+speedtest_exporter_port: 9798
+blackbox_exporter_port: 9115
 prometheus_port: 9090
 grafana_port: 3000
 cadvisor_port: 8088
@@ -64,18 +67,27 @@ grafana_admin_user: admin
 grafana_admin_password: "{{ vault_grafana_admin_password }}"
 grafana_allow_sign_up: false
 
-# ===== Speedtest Tracker =====
-# Secret — value lives encrypted in vault.yml (vault_speedtest_app_key).
-# Generate a fresh one: echo -n 'base64:'; openssl rand -base64 32
-speedtest_app_key: "{{ vault_speedtest_app_key }}"
-speedtest_schedule: "11 */4 * * *"
-speedtest_prune_days: 180
-# Prometheus scrape of Speedtest Tracker. Off by default because the /prometheus
-# endpoint must first be enabled in the app (Settings -> Data Platforms -> Prometheus).
-# After enabling it there, set this true (and a token below if you restricted access).
-speedtest_metrics_enabled: false
-# Secret (optional) — vault_speedtest_metrics_bearer_token in vault.yml.
-speedtest_metrics_bearer_token: "{{ vault_speedtest_metrics_bearer_token | default('') }}"
+# ===== Speedtest exporter (bandwidth) =====
+# Runs an Ookla speedtest on each Prometheus scrape and exposes the result as
+# native Prometheus metrics (speedtest_download_bits_per_second, ...). The test
+# only runs as often as Prometheus scrapes it (speedtest_scrape_interval), so the
+# cadence lives in the scrape config, not a cron schedule.
+# Pin a server by ID (find one at https://www.speedtest.net/); empty = auto-select.
+speedtest_exporter_server_id: ""
+# How often Prometheus triggers a speed test. Each test consumes real bandwidth,
+# so keep this coarse. Must be >= speedtest_exporter_timeout.
+speedtest_scrape_interval: 1h
+# Hard timeout for a single test (seconds). Prometheus scrape_timeout is derived
+# from this in the template (timeout + 10s).
+speedtest_exporter_timeout: 90
+
+# ===== Blackbox exporter (connection quality) =====
+# Continuous ICMP probes to public anycast resolvers for latency + reachability.
+# Availability over time (avg of probe_success) stands in for packet loss.
+blackbox_probe_targets:
+  - 1.1.1.1
+  - 8.8.8.8
+blackbox_scrape_interval: 20s
 
 # ===== Prometheus =====
 prometheus_retention_time: 30d
@@ -103,7 +115,8 @@ tailscale_advertise_exit_node: false
 homeassistant_image: ghcr.io/home-assistant/home-assistant:2026.6
 mosquitto_image: eclipse-mosquitto:2.0.22
 zigbee2mqtt_image: ghcr.io/koenkk/zigbee2mqtt:2.12.0
-speedtest_tracker_image: lscr.io/linuxserver/speedtest-tracker:1.14.4
+speedtest_exporter_image: ghcr.io/miguelndecarvalho/speedtest-exporter:v3.5.4
+blackbox_exporter_image: prom/blackbox-exporter:v0.28.0
 prometheus_image: prom/prometheus:v3.12.0
 grafana_image: grafana/grafana-oss:13.0.2
 cadvisor_image: ghcr.io/google/cadvisor:v0.53.0

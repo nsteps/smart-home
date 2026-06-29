@@ -15,13 +15,12 @@ control node (Ansible)  ──ssh──▶  Raspberry Pi 5
                                           ├─ Home Assistant ──┐
                                           ├─ Mosquitto (MQTT) ◀┘ (127.0.0.1:1883)
                                           ├─ Zigbee2MQTT ──▶ Mosquitto   (optional, needs dongle)
-                                          ├─ Speedtest Tracker
                                           └─ Prometheus ──▶ scrape ──▶ Node Exporter / cAdvisor
-                                                  ▲
+                                                  ▲                     Speedtest / Blackbox exporters
                                                   └── Grafana (provisioned datasource + dashboard)
 ```
 
-Monitoring flow: Node Exporter exposes host metrics, cAdvisor exposes per-container metrics, Prometheus scrapes and stores them, and Grafana visualizes them through an auto-provisioned datasource and the "Home Server" dashboard.
+Monitoring flow: Node Exporter exposes host metrics, cAdvisor exposes per-container metrics, the Speedtest exporter runs an Ookla test on each scrape (download/upload bandwidth), and the Blackbox exporter continuously ICMP-probes public resolvers (latency + reachability). Prometheus scrapes and stores all of them, and Grafana visualizes them through an auto-provisioned datasource and the "Home Server" dashboard. Internet bandwidth is sampled coarsely (every `speedtest_scrape_interval`, default 1h, since each test consumes real bandwidth); connection quality is sampled continuously (every `blackbox_scrape_interval`, default 20s).
 
 ## Components
 
@@ -30,7 +29,8 @@ Monitoring flow: Node Exporter exposes host metrics, cAdvisor exposes per-contai
 | Home Assistant | `ghcr.io/home-assistant/home-assistant:2026.6` | 8123 | Smart-home automation hub. Runs in `host` network mode; reaches MQTT at `127.0.0.1:1883`. |
 | Mosquitto | `eclipse-mosquitto:2.0.22` | 1883 | MQTT broker. Anonymous access on the LAN by default. |
 | Zigbee2MQTT | `ghcr.io/koenkk/zigbee2mqtt:2.12.0` | 8080 | Bridges a Zigbee coordinator to MQTT. Optional, needs a USB dongle; disabled by default. |
-| Speedtest Tracker | `lscr.io/linuxserver/speedtest-tracker:1.14.4` | 8081 | Scheduled internet speed tests with history. |
+| Speedtest exporter | `ghcr.io/miguelndecarvalho/speedtest-exporter:v3.5.4` | 9798 | Runs an Ookla speed test on each Prometheus scrape; exposes download/upload as native metrics. |
+| Blackbox exporter | `prom/blackbox-exporter:v0.28.0` | 9115 | Continuous ICMP probes (latency + reachability) to public resolvers. Needs `NET_RAW`. |
 | Prometheus | `prom/prometheus:v3.12.0` | 9090 | Metrics collection and storage (30-day retention). |
 | Grafana | `grafana/grafana-oss:13.0.2` | 3000 | Dashboards. Prometheus datasource and the "Home Server" dashboard are provisioned automatically. |
 | cAdvisor | `ghcr.io/google/cadvisor:v0.53.0` | 8088 | Per-container resource metrics. |
@@ -106,7 +106,6 @@ all:
 cp vault.example.yml vault.yml
 # fill in real values, e.g.:
 #   vault_grafana_admin_password: "$(openssl rand -base64 24)"
-#   vault_speedtest_app_key:      "base64:$(openssl rand -base64 32)"
 echo 'your-vault-password' > .vault_pass && chmod 600 .vault_pass
 ansible-vault encrypt vault.yml
 ```
@@ -130,9 +129,15 @@ The first run pulls multi-gigabyte images and can take a while. Re-running is id
 Home Assistant     http://<pi>:8123
 Grafana            http://<pi>:3000      (admin + vault_grafana_admin_password)
 Prometheus         http://<pi>:9090/targets
-Speedtest Tracker  http://<pi>:8081      (default admin@example.com / password)
+Speedtest exporter http://<pi>:9798/metrics   (triggers a test on each request)
+Blackbox exporter  http://<pi>:9115
 cAdvisor           http://<pi>:8088
 ```
+
+Internet speed lives on the Grafana "Pi Home Server Overview" dashboard: the
+"Download/Upload (latest)" stats and the "Speedtest bandwidth" graph for
+throughput, and "Internet latency" / "Internet reachability" for connection
+quality.
 
 **Day-2 operations** (on the Pi, in `/opt/home-server`)
 
@@ -171,7 +176,7 @@ The defaults assume a trusted LAN:
 - UFW is disabled; when enabled, the open TCP port list is built from the active services.
 - External access (Tailscale) is disabled.
 
-To harden: enable UFW, configure Mosquitto authentication/ACLs, use Tailscale instead of exposing ports, and protect the Speedtest Prometheus endpoint with a token (`speedtest_metrics_enabled` + `vault_speedtest_metrics_bearer_token`).
+To harden: enable UFW, configure Mosquitto authentication/ACLs, and use Tailscale instead of exposing ports. The exporter ports (9798/9115) only need to be reachable by Prometheus on the Docker network — you can drop them from the published `ports` if you don't need to curl them directly.
 
 ## Networking
 

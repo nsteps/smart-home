@@ -300,7 +300,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "decbits"
+          "unit": "bps"
         },
         "overrides": []
       },
@@ -324,13 +324,13 @@
       },
       "targets": [
         {
-          "expr": "download_bits",
-          "legendFormat": "Download bits",
+          "expr": "speedtest_download_bits_per_second",
+          "legendFormat": "Download",
           "refId": "A"
         },
         {
-          "expr": "upload_bits",
-          "legendFormat": "Upload bits",
+          "expr": "speedtest_upload_bits_per_second",
+          "legendFormat": "Upload",
           "refId": "B"
         }
       ],
@@ -344,7 +344,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -368,18 +368,136 @@
       },
       "targets": [
         {
-          "expr": "ping",
-          "legendFormat": "Ping",
+          "expr": "probe_icmp_duration_seconds{phase=\"rtt\"}",
+          "legendFormat": "{{instance}}",
           "refId": "A"
-        },
-        {
-          "expr": "packet_loss",
-          "legendFormat": "Packet loss",
-          "refId": "B"
         }
       ],
-      "title": "Speedtest latency / packet loss",
+      "title": "Internet latency (ICMP RTT)",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "avg_over_time(probe_success[5m]) * 100",
+          "legendFormat": "{{instance}} reachable %",
+          "refId": "A"
+        }
+      ],
+      "title": "Internet reachability (5m, packet-loss proxy)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 32
+      },
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "speedtest_download_bits_per_second",
+          "refId": "A"
+        }
+      ],
+      "title": "Download (latest)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 32
+      },
+      "id": 12,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "speedtest_upload_bits_per_second",
+          "refId": "A"
+        }
+      ],
+      "title": "Upload (latest)",
+      "type": "stat"
     }
   ],
   "refresh": "30s",
