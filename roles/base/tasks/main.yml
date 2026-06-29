@@ -49,6 +49,9 @@
     regexp: '^127\.0\.1\.1\s+'
     line: "127.0.1.1 {{ pi_hostname }}"
     create: true
+  # Skipped under molecule: Docker bind-mounts /etc/hosts, so the atomic
+  # rename fails ("Device or resource busy"). Runs normally on the Pi.
+  tags: molecule-notest
 
 - name: Set timezone
   community.general.timezone:
