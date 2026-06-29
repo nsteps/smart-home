@@ -4,6 +4,7 @@
 # Ansible
 *.retry
 *.log
+# Vault password file — NEVER commit. The encrypted vault.yml itself IS committed.
 .vault_pass
 .vault_pass.txt
 vault_pass*

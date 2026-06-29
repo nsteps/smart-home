@@ -51,20 +51,22 @@ uptime_kuma_port: 3001
 
 # ===== Grafana =====
 grafana_admin_user: admin
-grafana_admin_password: change-me-now
+# Secret — value lives encrypted in vault.yml (vault_grafana_admin_password).
+grafana_admin_password: "{{ vault_grafana_admin_password }}"
 grafana_allow_sign_up: false
 
 # ===== Speedtest Tracker =====
-# Generate a new key if you want:
-# echo -n 'base64:'; openssl rand -base64 32
-speedtest_app_key: "base64:QqeUW+J4g4Yt7M4Ai9J4W0F3Y+0pJhn/Wt8SeYV9u2k="
+# Secret — value lives encrypted in vault.yml (vault_speedtest_app_key).
+# Generate a fresh one: echo -n 'base64:'; openssl rand -base64 32
+speedtest_app_key: "{{ vault_speedtest_app_key }}"
 speedtest_schedule: "11 */4 * * *"
 speedtest_prune_days: 180
 # Prometheus scrape of Speedtest Tracker. Off by default because the /prometheus
 # endpoint must first be enabled in the app (Settings -> Data Platforms -> Prometheus).
 # After enabling it there, set this true (and a token below if you restricted access).
 speedtest_metrics_enabled: false
-speedtest_metrics_bearer_token: ""
+# Secret (optional) — vault_speedtest_metrics_bearer_token in vault.yml.
+speedtest_metrics_bearer_token: "{{ vault_speedtest_metrics_bearer_token | default('') }}"
 
 # ===== Prometheus =====
 prometheus_retention_time: 30d
@@ -83,7 +85,8 @@ zigbee_frontend_enabled: true
 mosquitto_allow_anonymous: true
 
 # ===== Tailscale =====
-tailscale_authkey: ""
+# Secret (optional) — vault_tailscale_authkey in vault.yml.
+tailscale_authkey: "{{ vault_tailscale_authkey | default('') }}"
 tailscale_advertise_exit_node: false
 
 # ===== Images =====

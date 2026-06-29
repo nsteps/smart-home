@@ -1,0 +1,7 @@
+---
+# Template for vault.yml — documents the required secret keys.
+# Copy to vault.yml, fill in real values, then: ansible-vault encrypt vault.yml
+vault_grafana_admin_password: ""
+vault_speedtest_app_key: ""        # base64:... (openssl rand -base64 32)
+vault_speedtest_metrics_bearer_token: ""
+vault_tailscale_authkey: ""
