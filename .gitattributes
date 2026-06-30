@@ -1,9 +1,11 @@
 # GitHub Linguist language detection.
 # This is an Ansible/YAML project; Jinja2 templates render YAML/conf, so count
 # them as YAML instead of letting them skew the repo's primary language.
-*.j2 linguist-language=YAML
-*.yml linguist-language=YAML
-*.yaml linguist-language=YAML
+# YAML is a "data" language, which Linguist excludes from the stats by default,
+# so force it detectable — otherwise the language bar shows nothing at all.
+*.j2 linguist-language=YAML linguist-detectable=true
+*.yml linguist-language=YAML linguist-detectable=true
+*.yaml linguist-language=YAML linguist-detectable=true
 
 # Keep meta files out of the language statistics.
 *.cfg linguist-language=INI
