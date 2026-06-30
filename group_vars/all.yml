@@ -84,6 +84,8 @@ librespeed_interval: 1h
 librespeed_server_id: ""
 librespeed_bin: /usr/local/bin/librespeed-cli
 librespeed_script: /usr/local/bin/librespeed-export.sh
+librespeed_release_base: "https://github.com/librespeed/speedtest-cli/releases/download"
+librespeed_tarball: "librespeed-cli_{{ librespeed_version }}_linux_{{ librespeed_arch }}.tar.gz"
 
 # ===== Blackbox exporter (connection quality) =====
 # Continuous ICMP probes to public anycast resolvers for latency + reachability.

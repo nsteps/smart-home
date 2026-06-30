@@ -94,15 +94,15 @@
 
 - name: Download LibreSpeed CLI
   ansible.builtin.get_url:
-    url: "https://github.com/librespeed/speedtest-cli/releases/download/v{{ librespeed_version }}/librespeed-cli_{{ librespeed_version }}_linux_{{ librespeed_arch }}.tar.gz"
-    dest: "/tmp/librespeed-cli_{{ librespeed_version }}_{{ librespeed_arch }}.tar.gz"
+    url: "{{ librespeed_release_base }}/v{{ librespeed_version }}/{{ librespeed_tarball }}"
+    dest: "/tmp/{{ librespeed_tarball }}"
     checksum: "sha256:{{ librespeed_sha256 }}"
     mode: "0644"
   when: librespeed_enabled | bool
 
 - name: Install LibreSpeed CLI binary
   ansible.builtin.unarchive:
-    src: "/tmp/librespeed-cli_{{ librespeed_version }}_{{ librespeed_arch }}.tar.gz"
+    src: "/tmp/{{ librespeed_tarball }}"
     dest: /usr/local/bin
     remote_src: true
     include:
