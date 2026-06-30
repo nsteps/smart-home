@@ -28,7 +28,6 @@ base_ufw_allowed_tcp_ports: >-
      + ([mosquitto_port] if mosquitto_enabled | bool else [])
      + ([homeassistant_port] if homeassistant_enabled | bool else [])
      + ([zigbee2mqtt_port] if zigbee2mqtt_enabled | bool else [])
-     + ([speedtest_exporter_port] if speedtest_exporter_enabled | bool else [])
      + ([blackbox_exporter_port] if blackbox_exporter_enabled | bool else [])
      + ([prometheus_port] if prometheus_enabled | bool else [])
      + ([grafana_port] if grafana_enabled | bool else [])
@@ -40,11 +39,14 @@ base_ufw_allowed_tcp_ports: >-
 homeassistant_enabled: true
 mosquitto_enabled: true
 zigbee2mqtt_enabled: false
-speedtest_exporter_enabled: true
+librespeed_enabled: true
 blackbox_exporter_enabled: true
 prometheus_enabled: true
 grafana_enabled: true
-cadvisor_enabled: true
+# cAdvisor disabled: on Raspberry Pi OS (cgroup v2) it does not expose per-container
+# CPU/memory without a kernel cmdline change + reboot, so the panels were always
+# "No data". Re-enable (and fix cmdline) if you later want container metrics.
+cadvisor_enabled: false
 node_exporter_enabled: true
 uptime_kuma_enabled: false
 tailscale_enabled: false
@@ -53,7 +55,6 @@ tailscale_enabled: false
 homeassistant_port: 8123
 mosquitto_port: 1883
 zigbee2mqtt_port: 8080
-speedtest_exporter_port: 9798
 blackbox_exporter_port: 9115
 prometheus_port: 9090
 grafana_port: 3000
@@ -67,19 +68,22 @@ grafana_admin_user: admin
 grafana_admin_password: "{{ vault_grafana_admin_password }}"
 grafana_allow_sign_up: false
 
-# ===== Speedtest exporter (bandwidth) =====
-# Runs an Ookla speedtest on each Prometheus scrape and exposes the result as
-# native Prometheus metrics (speedtest_download_bits_per_second, ...). The test
-# only runs as often as Prometheus scrapes it (speedtest_scrape_interval), so the
-# cadence lives in the scrape config, not a cron schedule.
-# Pin a server by ID (find one at https://www.speedtest.net/); empty = auto-select.
-speedtest_exporter_server_id: ""
-# How often Prometheus triggers a speed test. Each test consumes real bandwidth,
-# so keep this coarse. Must be >= speedtest_exporter_timeout.
-speedtest_scrape_interval: 1h
-# Hard timeout for a single test (seconds). Prometheus scrape_timeout is derived
-# from this in the template (timeout + 10s).
-speedtest_exporter_timeout: 90
+# ===== LibreSpeed (bandwidth) =====
+# Ookla/speedtest.net is blocked on some ISPs (RU), so bandwidth is measured with
+# librespeed-cli instead (does not depend on Cloudflare/Ookla). It runs on a
+# systemd timer and writes metrics to the node-exporter textfile collector, which
+# Prometheus already scrapes — no extra container or port.
+librespeed_version: "1.0.13"
+# arm64 for Raspberry Pi 5. sha256 of librespeed-cli_{ver}_linux_arm64.tar.gz.
+librespeed_arch: arm64
+librespeed_sha256: "3f59e01ea03626168a0ff3d6f3371a38c054267ee500a5f9a644d3fe28ceed69"
+# How often the test runs. Each run moves ~1 GB of traffic (≈24 GB/day at 1h).
+librespeed_interval: 1h
+# Pin a LibreSpeed server id (see `librespeed-cli --list`); empty = auto-select
+# the lowest-latency reachable server.
+librespeed_server_id: ""
+librespeed_bin: /usr/local/bin/librespeed-cli
+librespeed_script: /usr/local/bin/librespeed-export.sh
 
 # ===== Blackbox exporter (connection quality) =====
 # Continuous ICMP probes to public anycast resolvers for latency + reachability.
@@ -115,8 +119,7 @@ tailscale_advertise_exit_node: false
 homeassistant_image: ghcr.io/home-assistant/home-assistant:2026.6
 mosquitto_image: eclipse-mosquitto:2.0.22
 zigbee2mqtt_image: ghcr.io/koenkk/zigbee2mqtt:2.12.0
-speedtest_exporter_image: ghcr.io/miguelndecarvalho/speedtest-exporter:v3.5.4
-blackbox_exporter_image: prom/blackbox-exporter:v0.28.0
+blackbox_exporter_image: quay.io/prometheus/blackbox-exporter:v0.28.0
 prometheus_image: prom/prometheus:v3.12.0
 grafana_image: grafana/grafana-oss:13.0.2
 cadvisor_image: ghcr.io/google/cadvisor:v0.53.0

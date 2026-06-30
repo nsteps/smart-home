@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Run a LibreSpeed test and publish the result as Prometheus metrics for the
+# node-exporter textfile collector. Managed by Ansible (home_server role).
+# Ookla/speedtest.net is blocked on this ISP, so LibreSpeed is used instead.
+set -uo pipefail
+
+BIN="{{ librespeed_bin }}"
+OUT="{{ base_dir }}/textfile/librespeed.prom"
+TMP="$(mktemp)"
+
+args=(--json)
+{% if librespeed_server_id | default('') | length > 0 %}
+args+=(--server {{ librespeed_server_id }})
+{% endif %}
+
+json="$("$BIN" "${args[@]}" 2>/dev/null)"
+rc=$?
+ts="$(date +%s)"
+
+if [ "$rc" -eq 0 ] && [ -n "$json" ]; then
+  python3 - "$ts" "$json" > "$TMP" <<'PY'
+import sys, json
+ts = sys.argv[1]
+data = json.loads(sys.argv[2])[0]
+dl = float(data.get("download", 0)) * 1e6
+ul = float(data.get("upload", 0)) * 1e6
+ping = float(data.get("ping", 0))
+jitter = float(data.get("jitter", 0))
+server = ((data.get("server") or {}).get("name", "")).replace('"', "'")
+print("# HELP librespeed_up Whether the last LibreSpeed run succeeded.")
+print("# TYPE librespeed_up gauge")
+print("librespeed_up 1")
+print("# HELP librespeed_download_bits_per_second Download bandwidth (bit/s).")
+print("# TYPE librespeed_download_bits_per_second gauge")
+print("librespeed_download_bits_per_second %d" % dl)
+print("# HELP librespeed_upload_bits_per_second Upload bandwidth (bit/s).")
+print("# TYPE librespeed_upload_bits_per_second gauge")
+print("librespeed_upload_bits_per_second %d" % ul)
+print("# HELP librespeed_ping_milliseconds Latency to the test server (ms).")
+print("# TYPE librespeed_ping_milliseconds gauge")
+print("librespeed_ping_milliseconds %f" % ping)
+print("# HELP librespeed_jitter_milliseconds Jitter to the test server (ms).")
+print("# TYPE librespeed_jitter_milliseconds gauge")
+print("librespeed_jitter_milliseconds %f" % jitter)
+print("# HELP librespeed_last_success_timestamp_seconds Unix time of last success.")
+print("# TYPE librespeed_last_success_timestamp_seconds gauge")
+print("librespeed_last_success_timestamp_seconds %s" % ts)
+print('# HELP librespeed_server_info Test server used (name in label).')
+print("# TYPE librespeed_server_info gauge")
+print('librespeed_server_info{server="%s"} 1' % server)
+PY
+else
+  {
+    echo "# HELP librespeed_up Whether the last LibreSpeed run succeeded."
+    echo "# TYPE librespeed_up gauge"
+    echo "librespeed_up 0"
+  } > "$TMP"
+fi
+
+# node-exporter reads these files unprivileged, so they must be world-readable.
+chmod 0644 "$TMP"
+mv "$TMP" "$OUT"

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run a LibreSpeed test every {{ librespeed_interval }}
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ librespeed_interval }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

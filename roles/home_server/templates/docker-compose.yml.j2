@@ -60,27 +60,6 @@ services:
         max-file: "3"
 {% endif %}
 
-{% if speedtest_exporter_enabled | bool %}
-  speedtest-exporter:
-    image: {{ speedtest_exporter_image }}
-    container_name: speedtest-exporter
-    restart: unless-stopped
-    ports:
-      - "{{ speedtest_exporter_port }}:9798"
-    environment:
-      TZ: "{{ server_timezone }}"
-      SPEEDTEST_PORT: "9798"
-      SPEEDTEST_TIMEOUT: "{{ speedtest_exporter_timeout }}"
-{% if speedtest_exporter_server_id | default('') | length > 0 %}
-      SPEEDTEST_SERVER: "{{ speedtest_exporter_server_id }}"
-{% endif %}
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-{% endif %}
-
 {% if blackbox_exporter_enabled | bool %}
   blackbox-exporter:
     image: {{ blackbox_exporter_image }}
@@ -108,9 +87,6 @@ services:
     container_name: prometheus
     restart: unless-stopped
     depends_on:
-{% if speedtest_exporter_enabled | bool %}
-      - speedtest-exporter
-{% endif %}
 {% if blackbox_exporter_enabled | bool %}
       - blackbox-exporter
 {% endif %}
@@ -192,8 +168,15 @@ services:
       - "{{ node_exporter_port }}:9100"
     command:
       - --path.rootfs=/host
+{% if librespeed_enabled | bool %}
+      # LibreSpeed writes its results here as a .prom file (textfile collector).
+      - --collector.textfile.directory=/textfile
+{% endif %}
     volumes:
       - /:/host:ro,rslave
+{% if librespeed_enabled | bool %}
+      - ./textfile:/textfile:ro
+{% endif %}
     logging:
       driver: json-file
       options:

@@ -51,6 +51,7 @@
     - { path: "{{ base_dir }}/zigbee2mqtt/data" }
     - { path: "{{ base_dir }}/prometheus" }
     - { path: "{{ base_dir }}/blackbox" }
+    - { path: "{{ base_dir }}/textfile" }
     - { path: "{{ base_dir }}/grafana/provisioning/datasources" }
     - { path: "{{ base_dir }}/grafana/provisioning/dashboards" }
     - { path: "{{ base_dir }}/grafana/dashboards" }
@@ -90,6 +91,55 @@
     group: "{{ server_gid }}"
     mode: "0644"
   when: blackbox_exporter_enabled | bool
+
+- name: Download LibreSpeed CLI
+  ansible.builtin.get_url:
+    url: "https://github.com/librespeed/speedtest-cli/releases/download/v{{ librespeed_version }}/librespeed-cli_{{ librespeed_version }}_linux_{{ librespeed_arch }}.tar.gz"
+    dest: "/tmp/librespeed-cli_{{ librespeed_version }}_{{ librespeed_arch }}.tar.gz"
+    checksum: "sha256:{{ librespeed_sha256 }}"
+    mode: "0644"
+  when: librespeed_enabled | bool
+
+- name: Install LibreSpeed CLI binary
+  ansible.builtin.unarchive:
+    src: "/tmp/librespeed-cli_{{ librespeed_version }}_{{ librespeed_arch }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - librespeed-cli
+    owner: root
+    group: root
+    mode: "0755"
+  when: librespeed_enabled | bool
+
+- name: Render LibreSpeed export script
+  ansible.builtin.template:
+    src: librespeed-export.sh.j2
+    dest: "{{ librespeed_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+  when: librespeed_enabled | bool
+
+- name: Render LibreSpeed systemd service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - librespeed.service
+    - librespeed.timer
+  when: librespeed_enabled | bool
+
+- name: Enable and start LibreSpeed timer
+  ansible.builtin.systemd:
+    name: librespeed.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: librespeed_enabled | bool
 
 - name: Render Grafana datasource provisioning
   ansible.builtin.template:
@@ -160,14 +210,6 @@
     timeout: 180
     delay: 5
   when: zigbee2mqtt_enabled | bool
-
-- name: Wait for Speedtest exporter
-  ansible.builtin.wait_for:
-    host: 127.0.0.1
-    port: "{{ speedtest_exporter_port }}"
-    timeout: 180
-    delay: 5
-  when: speedtest_exporter_enabled | bool
 
 - name: Wait for Blackbox exporter
   ansible.builtin.wait_for:

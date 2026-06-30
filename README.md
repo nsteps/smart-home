@@ -15,12 +15,14 @@ control node (Ansible)  ──ssh──▶  Raspberry Pi 5
                                           ├─ Home Assistant ──┐
                                           ├─ Mosquitto (MQTT) ◀┘ (127.0.0.1:1883)
                                           ├─ Zigbee2MQTT ──▶ Mosquitto   (optional, needs dongle)
-                                          └─ Prometheus ──▶ scrape ──▶ Node Exporter / cAdvisor
-                                                  ▲                     Speedtest / Blackbox exporters
-                                                  └── Grafana (provisioned datasource + dashboard)
+                                          ├─ Prometheus ──▶ scrape ──▶ Node Exporter / Blackbox
+                                          │       ▲                     (Node Exporter also reads the
+                                          │       │                      LibreSpeed textfile results)
+                                          │       └── Grafana (provisioned datasource + dashboard)
+                                          └─ librespeed.timer ──▶ librespeed-cli ──▶ textfile metrics
 ```
 
-Monitoring flow: Node Exporter exposes host metrics, cAdvisor exposes per-container metrics, the Speedtest exporter runs an Ookla test on each scrape (download/upload bandwidth), and the Blackbox exporter continuously ICMP-probes public resolvers (latency + reachability). Prometheus scrapes and stores all of them, and Grafana visualizes them through an auto-provisioned datasource and the "Home Server" dashboard. Internet bandwidth is sampled coarsely (every `speedtest_scrape_interval`, default 1h, since each test consumes real bandwidth); connection quality is sampled continuously (every `blackbox_scrape_interval`, default 20s).
+Monitoring flow: Node Exporter exposes host metrics and the Blackbox exporter continuously ICMP-probes public resolvers (latency + reachability). Internet bandwidth is measured by `librespeed-cli` (Ookla/speedtest.net is blocked on some ISPs), run by a systemd timer that writes results to Node Exporter's textfile collector. Prometheus scrapes everything and Grafana visualizes it via an auto-provisioned datasource and the "Home Server" dashboard. Bandwidth is sampled every `librespeed_interval` (default 1h; each test moves ~1 GB, so ≈24 GB/day); connection quality is sampled continuously (every `blackbox_scrape_interval`, default 20s).
 
 ## Components
 
@@ -29,11 +31,11 @@ Monitoring flow: Node Exporter exposes host metrics, cAdvisor exposes per-contai
 | Home Assistant | `ghcr.io/home-assistant/home-assistant:2026.6` | 8123 | Smart-home automation hub. Runs in `host` network mode; reaches MQTT at `127.0.0.1:1883`. |
 | Mosquitto | `eclipse-mosquitto:2.0.22` | 1883 | MQTT broker. Anonymous access on the LAN by default. |
 | Zigbee2MQTT | `ghcr.io/koenkk/zigbee2mqtt:2.12.0` | 8080 | Bridges a Zigbee coordinator to MQTT. Optional, needs a USB dongle; disabled by default. |
-| Speedtest exporter | `ghcr.io/miguelndecarvalho/speedtest-exporter:v3.5.4` | 9798 | Runs an Ookla speed test on each Prometheus scrape; exposes download/upload as native metrics. |
-| Blackbox exporter | `prom/blackbox-exporter:v0.28.0` | 9115 | Continuous ICMP probes (latency + reachability) to public resolvers. Needs `NET_RAW`. |
+| LibreSpeed CLI | `github.com/librespeed/speedtest-cli` v1.0.13 (host binary) | — | Internet bandwidth (download/upload). Run by `librespeed.timer`; writes to Node Exporter's textfile collector. Replaces Ookla, which is ISP-blocked here. |
+| Blackbox exporter | `quay.io/prometheus/blackbox-exporter:v0.28.0` | 9115 | Continuous ICMP probes (latency + reachability) to public resolvers. Needs `NET_RAW`. |
 | Prometheus | `prom/prometheus:v3.12.0` | 9090 | Metrics collection and storage (30-day retention). |
 | Grafana | `grafana/grafana-oss:13.0.2` | 3000 | Dashboards. Prometheus datasource and the "Home Server" dashboard are provisioned automatically. |
-| cAdvisor | `ghcr.io/google/cadvisor:v0.53.0` | 8088 | Per-container resource metrics. |
+| cAdvisor | `ghcr.io/google/cadvisor:v0.53.0` | 8088 | Per-container resource metrics. Optional, **disabled by default** (no per-container data on Pi cgroup v2 without a cmdline change + reboot). |
 | Node Exporter | `quay.io/prometheus/node-exporter:v1.11.1` | 9100 | Host metrics (CPU, RAM, disk, network). |
 | Uptime Kuma | `louislam/uptime-kuma:1` | 3001 | Uptime monitoring. Optional, disabled by default. |
 | Tailscale | `tailscale/tailscale:stable` | — | Mesh VPN for remote access. Optional, disabled by default. |
@@ -129,14 +131,17 @@ The first run pulls multi-gigabyte images and can take a while. Re-running is id
 Home Assistant     http://<pi>:8123
 Grafana            http://<pi>:3000      (admin + vault_grafana_admin_password)
 Prometheus         http://<pi>:9090/targets
-Speedtest exporter http://<pi>:9798/metrics   (triggers a test on each request)
 Blackbox exporter  http://<pi>:9115
-cAdvisor           http://<pi>:8088
 ```
+
+The bandwidth test runs on a timer (`librespeed.timer`); to run it once
+immediately: `systemctl start librespeed.service`. Check the timer with
+`systemctl list-timers librespeed.timer` and results in
+`/opt/home-server/textfile/librespeed.prom`.
 
 Internet speed lives on the Grafana "Pi Home Server Overview" dashboard: the
 "Download/Upload (latest)" stats and the "Speedtest bandwidth" graph for
-throughput, and "Internet latency" / "Internet reachability" for connection
+throughput (from LibreSpeed), and "Internet latency" / "Internet reachability" for connection
 quality.
 
 **Day-2 operations** (on the Pi, in `/opt/home-server`)
@@ -156,7 +161,7 @@ All user-facing configuration lives in `group_vars/all.yml`:
 - **Services:** `*_enabled` flags and `*_port` ports.
 - **Images:** tags are pinned (no `:latest`) for reproducibility.
 - **Docker:** `docker_daemon_options` — contents of `daemon.json` (defaults to `mtu: 1280` and `max-concurrent-downloads: 1`, see Networking).
-- **Service settings:** Prometheus retention, Speedtest schedule, Zigbee adapter type, etc.
+- **Service settings:** Prometheus retention, LibreSpeed interval, Zigbee adapter type, etc.
 
 The inventory (`inventory/hosts.yml`) holds the Pi's real address and user and is intentionally not committed — only `hosts.yml.example` is in the repo.
 
@@ -176,7 +181,7 @@ The defaults assume a trusted LAN:
 - UFW is disabled; when enabled, the open TCP port list is built from the active services.
 - External access (Tailscale) is disabled.
 
-To harden: enable UFW, configure Mosquitto authentication/ACLs, and use Tailscale instead of exposing ports. The exporter ports (9798/9115) only need to be reachable by Prometheus on the Docker network — you can drop them from the published `ports` if you don't need to curl them directly.
+To harden: enable UFW, configure Mosquitto authentication/ACLs, and use Tailscale instead of exposing ports. The Blackbox exporter port (9115) only needs to be reachable by Prometheus on the Docker network — you can drop it from the published `ports` if you don't need to curl it directly.
 
 ## Networking
 
