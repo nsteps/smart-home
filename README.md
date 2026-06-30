@@ -1,5 +1,7 @@
 # Raspberry Pi 5 Home Server
 
+[![CI](https://github.com/nsteps/smart-home/actions/workflows/ci.yml/badge.svg)](https://github.com/nsteps/smart-home/actions/workflows/ci.yml)
+
 Ansible-deployed home server for a Raspberry Pi 5. A single playbook run turns a clean Raspberry Pi OS Lite install into a smart-home host: it installs Docker, renders all configuration, and brings up a stack of services (automation, MQTT, monitoring) as Docker Compose containers.
 
 The project is declarative and reproducible: image tags are pinned, secrets live in Ansible Vault, and role correctness is checked by linters and Molecule in CI.
