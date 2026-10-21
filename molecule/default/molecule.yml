@@ -1,6 +1,6 @@
 ---
-# Tests the OS-level provisioning (base + docker roles) for convergence and
-# idempotence inside a systemd-enabled Debian 12 container.
+# Tests the OS-level provisioning (base + docker + rescue roles) for convergence
+# and idempotence inside a systemd-enabled Debian 12 container.
 # The full service stack (home_server) is validated on the real Pi, not here —
 # it needs a Zigbee dongle and pulls multi-GB images.
 role_name_check: 1
@@ -37,6 +37,12 @@ provisioner:
         base_do_full_upgrade: false
         base_install_unattended_upgrades: false
         base_enable_ufw: false
+        # rescue role: everything else comes from roles/rescue/defaults.
+        # No sshd in the container, so the self-check would restart a missing
+        # unit — keep the timer installed but disable the sshd escalation.
+        rescue_check_ssh_restart_after: 0
+        rescue_check_reboot_after: 0
+        rescue_healthcheck_url: ""
 
 verifier:
   name: ansible

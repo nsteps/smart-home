@@ -18,13 +18,17 @@ docker_daemon_options:
   max-concurrent-downloads: 1
 
 # ===== Base system =====
-base_do_full_upgrade: true
+# Package upgrades are deliberate, not a side effect of every site.yml run:
+# an upgrade that only breaks on the next boot must be caught with a verified
+# reboot while you are at the keyboard. Use `ansible-playbook upgrade.yml -K`.
+base_do_full_upgrade: false
 base_install_unattended_upgrades: false
 base_enable_ufw: false
 # Derived from enabled services so the firewall never blocks a UI you turned on.
 # SSH (22) is always allowed; override this list explicitly if you need to.
 base_ufw_allowed_tcp_ports: >-
   {{ [22]
+     + ([rescue_dropbear_port] if rescue_dropbear_enabled | bool else [])
      + ([mosquitto_port] if mosquitto_enabled | bool else [])
      + ([homeassistant_port] if homeassistant_enabled | bool else [])
      + ([zigbee2mqtt_port] if zigbee2mqtt_enabled | bool else [])
@@ -34,6 +38,52 @@ base_ufw_allowed_tcp_ports: >-
      + ([cadvisor_port] if cadvisor_enabled | bool else [])
      + ([node_exporter_port] if node_exporter_enabled | bool else [])
      + ([uptime_kuma_port] if uptime_kuma_enabled | bool else []) }}
+
+# ===== Rescue / resilience (role rescue) =====
+# Never lose access to the headless host again. Each layer is independent.
+#
+# Second SSH server on another implementation and port. A broken OpenSSH
+# (interrupted upgrade, bad config, lost host keys) leaves this one untouched:
+#   ssh -p 2222 nick@pi-home.local
+rescue_dropbear_enabled: true
+rescue_dropbear_port: 2222
+rescue_dropbear_password_auth: true
+# Hardware watchdog: systemd pets /dev/watchdog; a hung kernel reboots itself.
+rescue_watchdog_enabled: true
+rescue_watchdog_sec: 15
+# Self-check every rescue_check_interval: sshd banner on 127.0.0.1:22, docker,
+# root fs writable and < rescue_check_disk_max_percent. Consecutive sshd
+# failures → `systemctl restart ssh` after N, reboot after M (at most once per
+# 24h). 0 = never for either.
+rescue_check_enabled: true
+rescue_check_interval: 5min
+rescue_check_ssh_restart_after: 3
+rescue_check_reboot_after: 6
+rescue_check_disk_max_percent: 90
+# Dead man's switch: the self-check pings this URL (healthchecks.io or any
+# compatible service). No ping within the grace period = alert in Telegram/mail.
+# Secret — lives in vault.yml as vault_healthcheck_url; empty disables pinging.
+rescue_healthcheck_url: "{{ vault_healthcheck_url | default('') }}"
+# Keep the journal across reboots so a broken boot can be examined afterwards.
+rescue_journal_persistent: true
+rescue_journal_max_use: 200M
+# Daily archive of the only non-reproducible state (HA config incl. .storage,
+# Zigbee2MQTT data) to rescue_backup_dir; keeps the newest rescue_backup_keep.
+# Optional off-host copy: "user@host:/path/" (root's SSH key on the Pi must be
+# authorized there). Everything else is rebuilt by `ansible-playbook site.yml`.
+rescue_backup_enabled: true
+rescue_backup_dir: /var/backups/home-server
+rescue_backup_keep: 7
+rescue_backup_remote: ""
+# Serial console on the Pi 5 debug UART: plug a Raspberry Pi Debug Probe into
+# the 3-pin JST between the micro-HDMI ports, then on the laptop
+#   screen /dev/tty.usbmodem* 115200
+# and you get a login prompt no matter what state sshd or the network is in.
+rescue_serial_console: true
+# Wired only, one IP: disables the on-board Wi-Fi (needs a reboot). Two
+# interfaces in two router segments is how the Pi "disappeared" in Oct 2026.
+# Off by default — enable deliberately once the wired link is confirmed.
+rescue_disable_wifi: false
 
 # ===== Services =====
 homeassistant_enabled: true

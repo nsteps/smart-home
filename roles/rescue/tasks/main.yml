@@ -1,0 +1,244 @@
+---
+# Defence in depth against losing access to a headless host:
+#   1. dropbear — a second SSH server on another implementation/port
+#   2. hardware watchdog — a hung kernel reboots itself
+#   3. self-check timer — sshd/docker/rootfs probe, ssh restart → reboot,
+#      dead-man's-switch ping to healthchecks.io (or similar)
+#   4. persistent journal — post-mortems survive a reboot
+#   5. daily backup of the only non-reproducible state
+#   6. serial console on the Pi 5 debug UART, optional Wi-Fi off
+
+# ---------- 1. dropbear: rescue SSH ----------
+- name: Install dropbear (binary only, our own systemd unit)
+  ansible.builtin.apt:
+    name: dropbear-bin
+    state: present
+  when: rescue_dropbear_enabled | bool
+
+- name: Ensure dropbear key directory
+  ansible.builtin.file:
+    path: /etc/dropbear
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: rescue_dropbear_enabled | bool
+
+- name: Generate dropbear host key
+  ansible.builtin.command:
+    cmd: dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key
+    creates: /etc/dropbear/dropbear_ed25519_host_key
+  when: rescue_dropbear_enabled | bool
+
+- name: Render dropbear-rescue service
+  ansible.builtin.template:
+    src: dropbear-rescue.service.j2
+    dest: /etc/systemd/system/dropbear-rescue.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart dropbear-rescue
+  when: rescue_dropbear_enabled | bool
+
+- name: Enable and start dropbear-rescue
+  ansible.builtin.systemd:
+    name: dropbear-rescue.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: rescue_dropbear_enabled | bool
+
+- name: Check whether dropbear-rescue unit exists
+  ansible.builtin.stat:
+    path: /etc/systemd/system/dropbear-rescue.service
+  register: rescue_dropbear_unit
+  when: not rescue_dropbear_enabled | bool
+
+- name: Disable dropbear-rescue when turned off
+  ansible.builtin.systemd:
+    name: dropbear-rescue.service
+    enabled: false
+    state: stopped
+  when:
+    - not rescue_dropbear_enabled | bool
+    - rescue_dropbear_unit.stat.exists
+
+# ---------- 2. hardware watchdog ----------
+- name: Ensure systemd system.conf.d exists
+  ansible.builtin.file:
+    path: /etc/systemd/system.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure systemd hardware watchdog
+  ansible.builtin.template:
+    src: watchdog.conf.j2
+    dest: /etc/systemd/system.conf.d/10-watchdog.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reexec systemd
+  when: rescue_watchdog_enabled | bool
+  # No /dev/watchdog inside a container.
+  tags: molecule-notest
+
+- name: Remove watchdog config when turned off
+  ansible.builtin.file:
+    path: /etc/systemd/system.conf.d/10-watchdog.conf
+    state: absent
+  notify: Reexec systemd
+  when: not rescue_watchdog_enabled | bool
+  tags: molecule-notest
+
+# ---------- 3. self-check timer + dead man's switch ----------
+- name: Ensure rescue-check state directory
+  ansible.builtin.file:
+    path: /var/lib/rescue-check
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: rescue_check_enabled | bool
+
+- name: Render rescue-check script
+  ansible.builtin.template:
+    src: rescue-check.sh.j2
+    dest: /usr/local/sbin/rescue-check.sh
+    owner: root
+    group: root
+    mode: "0755"
+  when: rescue_check_enabled | bool
+
+- name: Render rescue-check service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - rescue-check.service
+    - rescue-check.timer
+  notify: Reload systemd
+  when: rescue_check_enabled | bool
+
+- name: Enable and start rescue-check timer
+  ansible.builtin.systemd:
+    name: rescue-check.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: rescue_check_enabled | bool
+
+- name: Check whether rescue-check timer exists
+  ansible.builtin.stat:
+    path: /etc/systemd/system/rescue-check.timer
+  register: rescue_check_unit
+  when: not rescue_check_enabled | bool
+
+- name: Disable rescue-check timer when turned off
+  ansible.builtin.systemd:
+    name: rescue-check.timer
+    enabled: false
+    state: stopped
+  when:
+    - not rescue_check_enabled | bool
+    - rescue_check_unit.stat.exists
+
+# ---------- 4. persistent journal ----------
+- name: Ensure journald.conf.d exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: rescue_journal_persistent | bool
+
+- name: Ensure persistent journal directory
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+  when: rescue_journal_persistent | bool
+
+- name: Configure persistent journal
+  ansible.builtin.template:
+    src: journald-persistent.conf.j2
+    dest: /etc/systemd/journald.conf.d/10-persistent.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart journald
+  when: rescue_journal_persistent | bool
+
+# ---------- 5. backup ----------
+- name: Ensure backup directory
+  ansible.builtin.file:
+    path: "{{ rescue_backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: rescue_backup_enabled | bool
+
+- name: Render rescue-backup script
+  ansible.builtin.template:
+    src: rescue-backup.sh.j2
+    dest: /usr/local/sbin/rescue-backup.sh
+    owner: root
+    group: root
+    mode: "0755"
+  when: rescue_backup_enabled | bool
+
+- name: Render rescue-backup service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - rescue-backup.service
+    - rescue-backup.timer
+  notify: Reload systemd
+  when: rescue_backup_enabled | bool
+
+- name: Enable and start rescue-backup timer
+  ansible.builtin.systemd:
+    name: rescue-backup.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: rescue_backup_enabled | bool
+
+# ---------- 6. Raspberry Pi boot files ----------
+- name: Check for Raspberry Pi boot files
+  ansible.builtin.stat:
+    path: "{{ rescue_boot_dir }}/cmdline.txt"
+  register: rescue_cmdline
+
+- name: Ensure serial console on the Pi 5 debug UART (Debug Probe)
+  ansible.builtin.lineinfile:
+    path: "{{ rescue_boot_dir }}/cmdline.txt"
+    # cmdline.txt is a single line; prepend only when console=serial0 is absent.
+    regexp: '^(?!.*console=serial0)(.+)$'
+    line: 'console=serial0,115200 \1'
+    backrefs: true
+  when:
+    - rescue_serial_console | bool
+    - rescue_cmdline.stat.exists
+  tags: molecule-notest
+
+- name: Disable on-board Wi-Fi (wired only, one IP; takes effect after reboot)
+  ansible.builtin.lineinfile:
+    path: "{{ rescue_boot_dir }}/config.txt"
+    regexp: '^dtoverlay=disable-wifi'
+    line: dtoverlay=disable-wifi
+    state: "{{ 'present' if rescue_disable_wifi | bool else 'absent' }}"
+  when: rescue_cmdline.stat.exists
+  tags: molecule-notest

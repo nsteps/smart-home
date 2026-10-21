@@ -1,0 +1,39 @@
+---
+# Defaults for the rescue role. The user-facing copy of these knobs lives in
+# group_vars/all.yml (project convention); these defaults only make the role
+# self-contained for Molecule and for reuse.
+
+# Second, independent SSH server (dropbear) — survives a broken OpenSSH.
+rescue_dropbear_enabled: true
+rescue_dropbear_port: 2222
+rescue_dropbear_password_auth: true
+
+# Hardware watchdog via systemd: a hung kernel/systemd reboots itself.
+rescue_watchdog_enabled: true
+rescue_watchdog_sec: 15
+
+# Periodic self-check (sshd banner, docker, root fs) with escalation and
+# a dead-man's-switch ping.
+rescue_check_enabled: true
+rescue_check_interval: 5min
+rescue_check_ssh_port: 22
+rescue_check_ssh_restart_after: 3
+rescue_check_reboot_after: 6
+rescue_check_disk_max_percent: 90
+rescue_healthcheck_url: ""
+
+# Persistent journal so post-mortems survive a reboot.
+rescue_journal_persistent: true
+rescue_journal_max_use: 200M
+
+# Daily backup of the only non-reproducible state (HA config, Zigbee2MQTT data).
+rescue_backup_enabled: true
+rescue_backup_src: "{{ base_dir | default('/opt/home-server') }}"
+rescue_backup_dir: /var/backups/home-server
+rescue_backup_keep: 7
+rescue_backup_remote: ""
+
+# Raspberry Pi boot files (skipped automatically where they don't exist).
+rescue_boot_dir: /boot/firmware
+rescue_serial_console: true
+rescue_disable_wifi: false

@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Managed by Ansible (role rescue).
+#
+# Self-check for a headless host:
+#   - sshd must answer with its banner on 127.0.0.1:{{ rescue_check_ssh_port }}
+#   - docker daemon must respond (if installed)
+#   - root fs must be writable and below {{ rescue_check_disk_max_percent }}% used
+# Escalation on consecutive sshd failures: restart ssh.service after
+# {{ rescue_check_ssh_restart_after }}, reboot after {{ rescue_check_reboot_after }} (at most once per 24h; 0 = never).
+# Dead man's switch: ping RESCUE_HEALTHCHECK_URL on success, URL/fail with
+# details on failure. No ping at all means the host is dead — the service
+# behind the URL (healthchecks.io) alerts you.
+set -u
+
+SSH_PORT={{ rescue_check_ssh_port }}
+MAX_DISK={{ rescue_check_disk_max_percent }}
+RESTART_AFTER={{ rescue_check_ssh_restart_after }}
+REBOOT_AFTER={{ rescue_check_reboot_after }}
+URL="{{ rescue_healthcheck_url }}"
+{% raw %}
+COUNTER=/run/rescue-check.fail          # tmpfs: resets on reboot
+REBOOT_MARK=/var/lib/rescue-check/last-reboot
+fails=()
+
+log() { logger -t rescue-check -- "$*"; }
+
+# --- sshd banner (no auth, no key exchange; the server speaks first) ---
+banner=$(
+  exec 3<>"/dev/tcp/127.0.0.1/${SSH_PORT}" 2>/dev/null \
+    && IFS= read -r -t 5 line <&3 \
+    && printf '%s' "${line}"
+)
+if [[ "${banner}" == SSH-* ]]; then
+  ssh_ok=1
+else
+  ssh_ok=0
+  fails+=("sshd: no banner on :${SSH_PORT} (got '${banner:-nothing}')")
+fi
+
+# --- docker ---
+if command -v docker >/dev/null 2>&1; then
+  docker info >/dev/null 2>&1 || fails+=("docker: daemon not responding")
+fi
+
+# --- root fs ---
+probe="/var/tmp/.rescue-check.$$"
+if ( : > "${probe}" ) 2>/dev/null; then
+  rm -f "${probe}"
+else
+  fails+=("rootfs: not writable (read-only or full)")
+fi
+used=$(df -P / | awk 'NR==2 { gsub("%", "", $5); print $5 }')
+if [[ "${used}" =~ ^[0-9]+$ ]] && (( used >= MAX_DISK )); then
+  fails+=("rootfs: ${used}% used (limit ${MAX_DISK}%)")
+fi
+
+# --- escalation on sshd failures ---
+if (( ssh_ok )); then
+  rm -f "${COUNTER}"
+else
+  n=$(( $(cat "${COUNTER}" 2>/dev/null || echo 0) + 1 ))
+  echo "${n}" > "${COUNTER}"
+  log "sshd check failed (${n} in a row)"
+  if (( REBOOT_AFTER > 0 && n >= REBOOT_AFTER )); then
+    now=$(date +%s)
+    last=$(stat -c %Y "${REBOOT_MARK}" 2>/dev/null || echo 0)
+    if (( now - last < 86400 )); then
+      log "sshd still down but already rebooted within 24h; not rebooting again"
+    else
+      log "rebooting: sshd unreachable ${n} times"
+      touch "${REBOOT_MARK}"
+      systemctl reboot
+    fi
+  elif (( RESTART_AFTER > 0 && n >= RESTART_AFTER )); then
+    log "restarting ssh.service"
+    systemctl restart ssh.service 2>/dev/null || true
+  fi
+fi
+
+# --- dead man's switch ---
+if [[ -n "${URL}" ]]; then
+  if (( ${#fails[@]} == 0 )); then
+    curl -fsS -m 10 --retry 3 -o /dev/null "${URL}" \
+      || log "healthcheck ping failed"
+  else
+    printf '%s\n' "${fails[@]}" \
+      | curl -fsS -m 10 --retry 3 -o /dev/null --data-binary @- "${URL}/fail" \
+      || log "healthcheck fail-ping failed"
+  fi
+fi
+
+if (( ${#fails[@]} )); then
+  printf '%s\n' "${fails[@]}" >&2
+  exit 1
+fi
+exit 0
+{% endraw %}

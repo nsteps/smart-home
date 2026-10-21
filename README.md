@@ -49,7 +49,8 @@ Each service is toggled by a `*_enabled` flag in `group_vars/all.yml`; disabled 
 ```
 .
 ├── ansible.cfg                  # Ansible settings (inventory, vault password file)
-├── site.yml                     # playbook: base → docker → home_server roles
+├── site.yml                     # playbook: base → docker → rescue → home_server roles
+├── upgrade.yml                  # playbook: OS upgrade + verified reboot
 ├── requirements.yml             # Galaxy collections (community.docker/general, ansible.posix)
 ├── inventory/
 │   └── hosts.yml.example        # inventory template (real hosts.yml is gitignored)
@@ -60,6 +61,7 @@ Each service is toggled by a `*_enabled` flag in `group_vars/all.yml`; disabled 
 ├── roles/
 │   ├── base/                    # OS: packages, hostname, timezone, avahi, UFW
 │   ├── docker/                  # Docker Engine, Compose plugin, daemon tuning
+│   ├── rescue/                  # dropbear, watchdog, self-check, journal, backup, serial console
 │   └── home_server/             # directories, config rendering, stack deployment
 ├── molecule/default/            # test scenario (converge/idempotence/verify)
 └── .github/workflows/ci.yml     # CI: lint + molecule
@@ -70,6 +72,8 @@ Each service is toggled by a `*_enabled` flag in `group_vars/all.yml`; disabled 
 **base** — brings the OS to a working state: asserts a Debian-family host, updates the system, installs base packages, sets hostname and timezone, enables avahi-daemon, and optionally configures UFW (the allowed-port list is derived from the enabled services).
 
 **docker** — installs Docker Engine and the Compose plugin from Docker's official repository, enables the service, adds the user to the `docker` group, and — if `docker_daemon_options` is set — writes `/etc/docker/daemon.json` (e.g. MTU) and restarts the daemon.
+
+**rescue** — makes sure you never lose access to the headless host again (see [Resilience](#resilience)): a second SSH server (dropbear) on another port, the hardware watchdog, a self-check timer with a dead-man's-switch ping, a persistent journal, a daily backup of the non-reproducible state, and the serial console on the Pi 5 debug UART.
 
 **home_server** — resolves the Zigbee dongle path (when Zigbee2MQTT is enabled), creates the directory tree under `/opt/home-server`, renders every config (Mosquitto, Zigbee2MQTT, Prometheus, Grafana provisioning, `docker-compose.yml`), deploys the stack via `community.docker.docker_compose_v2`, and waits for services to become ready on their ports (Home Assistant additionally gets an HTTP readiness check).
 
@@ -155,6 +159,40 @@ docker compose up -d        # apply changes / restart
 docker compose down         # stop the stack
 ```
 
+**OS upgrades** — never a side effect of `site.yml` (`base_do_full_upgrade: false`). Run the dedicated playbook, which upgrades, reboots and then *proves* the host came back (OpenSSH and dropbear banners, `dpkg --audit`, Docker, every compose service running, the rescue self-check):
+
+```bash
+ansible-playbook upgrade.yml -K
+```
+
+An upgrade that only breaks on the next boot is caught here, while you are at the keyboard — not months later at the first power cycle.
+
+## Resilience
+
+Why: in October 2026 the Pi came back from a summer of being unplugged with OpenSSH accepting connections and closing them before the banner, four of six containers down, and no way in — one SSH implementation, no console, and the last `apt full-upgrade` had never been followed by a reboot. The `rescue` role adds independent layers so that one failure never means "pull the SSD":
+
+| Layer | What it does | Knob |
+| --- | --- | --- |
+| **Dropbear rescue SSH** | Second SSH server, different implementation, own host key, port 2222. A broken OpenSSH (interrupted upgrade, bad config, lost keys) does not touch it: `ssh -p 2222 user@pi-home.local`. | `rescue_dropbear_*` |
+| **Hardware watchdog** | systemd pets `/dev/watchdog`; a hung kernel/systemd reboots itself. | `rescue_watchdog_*` |
+| **Self-check timer** | Every 5 min: sshd banner on `127.0.0.1:22`, Docker daemon, root fs writable and below 90 %. Consecutive sshd failures → `systemctl restart ssh` after 3, reboot after 6 (at most once a day). Logs to the journal as `rescue-check`. | `rescue_check_*` |
+| **Dead man's switch** | The self-check pings a [healthchecks.io](https://healthchecks.io) URL on success and `…/fail` with details on failure. Silence = the host is sick or dead = Telegram/e-mail alert. Grafana on the Pi cannot report that the Pi itself is down; this can. | `vault_healthcheck_url` |
+| **Persistent journal** | `Storage=persistent`, 200 MB cap, so a broken boot can be read afterwards (`journalctl -b -1`). | `rescue_journal_*` |
+| **Backup** | Daily tarball of `homeassistant/` (incl. `.storage`, the entity registry) and `zigbee2mqtt/data/` to `/var/backups/home-server`, newest 7 kept, optional `rsync` to another host. Everything else is reproduced by `site.yml`. | `rescue_backup_*` |
+| **Serial console** | Keeps `console=serial0,115200` in `cmdline.txt`. Plug a Raspberry Pi Debug Probe into the 3-pin UART between the micro-HDMI ports, run `screen /dev/tty.usbmodem* 115200` on the laptop, and you have a login prompt plus the full boot log whatever sshd or the network are doing. | `rescue_serial_console` |
+| **Wired only** | Optional `dtoverlay=disable-wifi`: one interface, one IP, one router segment. | `rescue_disable_wifi` |
+
+Operational rules that no role can enforce: shut down with the power button or `sudo poweroff`, never by pulling the plug; keep a DHCP reservation for the Pi on the router; run `upgrade.yml` for upgrades.
+
+Restore from a backup after a rebuild:
+
+```bash
+ansible-playbook site.yml -K                                   # fresh host, empty stack
+docker compose -f /opt/home-server/docker-compose.yml stop homeassistant zigbee2mqtt
+tar -C /opt/home-server -xzf /var/backups/home-server/home-server-<stamp>.tar.gz
+docker compose -f /opt/home-server/docker-compose.yml up -d
+```
+
 ## Configuration
 
 All user-facing configuration lives in `group_vars/all.yml`:
@@ -170,7 +208,7 @@ The inventory (`inventory/hosts.yml`) holds the Pi's real address and user and i
 ## Testing & CI
 
 - **yamllint** and **ansible-lint** (`basic` profile) — static analysis.
-- **Molecule** (`molecule/default`) — `converge → idempotence → verify` of the `base` and `docker` roles in a systemd-enabled Debian 12 container. The full service stack is not tested in CI (it needs a Zigbee dongle and multi-GB images).
+- **Molecule** (`molecule/default`) — `converge → idempotence → verify` of the `base`, `docker` and `rescue` roles in a systemd-enabled Debian 12 container. The full service stack is not tested in CI (it needs a Zigbee dongle and multi-GB images).
 - **GitHub Actions** (`.github/workflows/ci.yml`) — `lint` and `molecule` jobs on push to `main` and on PRs. A repository secret `ANSIBLE_VAULT_PASSWORD` is required so CI can decrypt the vault.
 
 Tasks that can't run inside a container (editing `/etc/hostname`, `/etc/hosts`) are tagged `molecule-notest`; they are skipped only under Molecule and run normally on a real host.
@@ -180,7 +218,7 @@ Tasks that can't run inside a container (editing `/etc/hostname`, `/etc/hosts`) 
 The defaults assume a trusted LAN:
 
 - Mosquitto allows anonymous connections (`mosquitto_allow_anonymous: true`).
-- UFW is disabled; when enabled, the open TCP port list is built from the active services.
+- UFW is disabled; when enabled, the open TCP port list is built from the active services (plus the dropbear rescue port).
 - External access (Tailscale) is disabled.
 
 To harden: enable UFW, configure Mosquitto authentication/ACLs, and use Tailscale instead of exposing ports. The Blackbox exporter port (9115) only needs to be reachable by Prometheus on the Docker network — you can drop it from the published `ports` if you don't need to curl it directly.

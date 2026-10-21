@@ -1,0 +1,8 @@
+[Unit]
+Description=Rescue self-check (sshd, docker, rootfs) with dead-man's-switch ping
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rescue-check.sh

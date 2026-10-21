@@ -1,0 +1,14 @@
+[Unit]
+Description=Rescue SSH (dropbear) on port {{ rescue_dropbear_port }} - independent of OpenSSH
+Documentation=man:dropbear(8)
+After=network.target
+
+[Service]
+# -F foreground, -E log to stderr (journal), -w no root login
+ExecStart=/usr/sbin/dropbear -F -E -w -p {{ rescue_dropbear_port }} -r /etc/dropbear/dropbear_ed25519_host_key{% if not rescue_dropbear_password_auth | bool %} -s{% endif %}
+
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

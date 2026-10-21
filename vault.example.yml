@@ -3,3 +3,6 @@
 # Copy to vault.yml, fill in real values, then: ansible-vault encrypt vault.yml
 vault_grafana_admin_password: ""
 vault_tailscale_authkey: ""
+# Dead man's switch ping URL, e.g. https://hc-ping.com/<uuid> (healthchecks.io).
+# Empty = the rescue self-check runs but does not ping anything.
+vault_healthcheck_url: ""
