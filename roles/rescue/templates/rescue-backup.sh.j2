@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Managed by Ansible (role rescue).
+#
+# Everything else on this host is reproduced by `ansible-playbook site.yml`.
+# The only state worth keeping is Home Assistant's config (.storage holds the
+# entity registry!) and Zigbee2MQTT's data (pairings, coordinator backup).
+# Recorder databases are excluded: large, inconsistent while live, and only
+# history. Keeps the last {{ rescue_backup_keep }} archives; optionally rsyncs
+# them to {{ rescue_backup_remote | default('nowhere', true) }}.
+set -uo pipefail
+
+SRC="{{ rescue_backup_src }}"
+DST="{{ rescue_backup_dir }}"
+KEEP={{ rescue_backup_keep }}
+REMOTE="{{ rescue_backup_remote }}"
+
+log() { logger -t rescue-backup -- "$*"; }
+
+if [[ ! -d "${SRC}/homeassistant" ]]; then
+  log "nothing to back up: ${SRC}/homeassistant does not exist"
+  exit 0
+fi
+
+mkdir -p "${DST}"
+stamp=$(date +%Y%m%d-%H%M%S)
+out="${DST}/home-server-${stamp}.tar.gz"
+
+paths=(homeassistant)
+[[ -d "${SRC}/zigbee2mqtt/data" ]] && paths+=(zigbee2mqtt/data)
+
+tar -C "${SRC}" -czf "${out}" \
+  --warning=no-file-changed --ignore-failed-read \
+  --exclude='homeassistant/*.db' \
+  --exclude='homeassistant/*.db-*' \
+  --exclude='homeassistant/home-assistant.log*' \
+  --exclude='homeassistant/deps' \
+  --exclude='homeassistant/tts' \
+  --exclude='homeassistant/__pycache__' \
+  --exclude='zigbee2mqtt/data/log' \
+  "${paths[@]}"
+rc=$?
+# tar exit 1 = "some files changed while reading" — acceptable for a live config dir.
+if (( rc > 1 )); then
+  log "tar failed (exit ${rc})"
+  rm -f "${out}"
+  exit "${rc}"
+fi
+
+# Rotate: keep the newest KEEP archives.
+ls -1t "${DST}"/home-server-*.tar.gz 2>/dev/null | tail -n +$(( KEEP + 1 )) | xargs -r rm -f
+
+if [[ -n "${REMOTE}" ]]; then
+  rsync -az --delete "${DST}/" "${REMOTE}" || log "rsync to ${REMOTE} failed"
+fi
+
+log "wrote ${out} ($(du -h "${out}" | cut -f1))"

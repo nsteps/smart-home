@@ -1,0 +1,6 @@
+# Managed by Ansible (role rescue).
+# systemd pets the hardware watchdog; if the kernel or systemd hangs for
+# RuntimeWatchdogSec the board resets itself instead of sitting dead.
+[Manager]
+RuntimeWatchdogSec={{ rescue_watchdog_sec }}s
+RebootWatchdogSec=10min

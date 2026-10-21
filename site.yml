@@ -10,4 +10,7 @@
   roles:
     - role: base
     - role: docker
+    # Rescue access (dropbear, watchdog, self-check, journal, backup) goes in
+    # before the stack so a failed stack deploy never leaves you locked out.
+    - role: rescue
     - role: home_server

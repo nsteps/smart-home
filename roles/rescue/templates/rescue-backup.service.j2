@@ -1,0 +1,10 @@
+[Unit]
+Description=Backup Home Assistant / Zigbee2MQTT state to {{ rescue_backup_dir }}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rescue-backup.sh
+Nice=10
+IOSchedulingClass=idle

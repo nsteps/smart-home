@@ -1,0 +1,5 @@
+# Managed by Ansible (role rescue).
+# Keep logs across reboots so a broken boot can be examined afterwards.
+[Journal]
+Storage=persistent
+SystemMaxUse={{ rescue_journal_max_use }}

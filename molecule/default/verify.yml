@@ -26,3 +26,37 @@
       register: user_groups
       changed_when: false
       failed_when: "'docker' not in user_groups.stdout.split()"
+
+    # ----- rescue role -----
+    - name: Dropbear rescue SSH answers with a banner on its port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ rescue_dropbear_port | default(2222) }}"
+        search_regex: "SSH-2.0"
+        timeout: 15
+
+    - name: Rescue timers are active
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+      register: rescue_timer
+      loop:
+        - rescue-check.timer
+        - rescue-backup.timer
+      failed_when: rescue_timer.status.ActiveState != 'active'
+
+    - name: Rescue scripts pass a syntax check
+      ansible.builtin.command: "bash -n {{ item }}"
+      loop:
+        - /usr/local/sbin/rescue-check.sh
+        - /usr/local/sbin/rescue-backup.sh
+      changed_when: false
+
+    - name: Backup script is a no-op without a stack and exits 0
+      ansible.builtin.command: /usr/local/sbin/rescue-backup.sh
+      changed_when: false
+
+    - name: Journal is persistent
+      ansible.builtin.stat:
+        path: /var/log/journal
+      register: journal_dir
+      failed_when: not journal_dir.stat.exists or not journal_dir.stat.isdir

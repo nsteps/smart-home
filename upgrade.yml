@@ -1,0 +1,120 @@
+---
+# Deliberate OS upgrade with a VERIFIED reboot.
+#
+# A kernel / libc / openssh upgrade that only breaks on the next boot is caught
+# here, while you are at the keyboard — not months later when the Pi is first
+# power-cycled. site.yml no longer upgrades packages (base_do_full_upgrade: false);
+# run this instead, every time:
+#
+#   ansible-playbook upgrade.yml -K
+#
+# Steps: pre-flight → apt dist-upgrade → sshd -t → reboot (only if anything
+# changed, or -e upgrade_force_reboot=true) → OpenSSH and dropbear banners
+# from the control node → dpkg --audit → docker → every compose service running
+# → rescue self-check.
+- name: Upgrade OS and verify the host comes back
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - "{{ playbook_dir }}/vault.yml"
+
+  vars:
+    upgrade_force_reboot: false
+    upgrade_control_host: "{{ ansible_host | default(inventory_hostname) }}"
+
+  tasks:
+    - name: Pre-flight — no half-configured packages
+      ansible.builtin.command:
+        cmd: dpkg --audit
+      register: upgrade_dpkg_audit_before
+      changed_when: false
+      failed_when: upgrade_dpkg_audit_before.stdout | length > 0
+
+    - name: Full upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+        autoremove: true
+        autoclean: true
+      register: upgrade_apt
+
+    - name: OpenSSH config still valid
+      ansible.builtin.command:
+        cmd: sshd -t
+      changed_when: false
+
+    - name: Reboot
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        post_reboot_delay: 15
+      when: upgrade_apt is changed or upgrade_force_reboot | bool
+
+    - name: OpenSSH answers with a banner (from the control node)
+      ansible.builtin.wait_for:
+        host: "{{ upgrade_control_host }}"
+        port: 22
+        search_regex: "SSH-2.0"
+        timeout: 60
+      delegate_to: localhost
+      become: false
+
+    - name: Dropbear rescue SSH answers with a banner (from the control node)
+      ansible.builtin.wait_for:
+        host: "{{ upgrade_control_host }}"
+        port: "{{ rescue_dropbear_port }}"
+        search_regex: "SSH-2.0"
+        timeout: 60
+      delegate_to: localhost
+      become: false
+      when: rescue_dropbear_enabled | default(false) | bool
+
+    - name: No half-configured packages after upgrade
+      ansible.builtin.command:
+        cmd: dpkg --audit
+      register: upgrade_dpkg_audit_after
+      changed_when: false
+      failed_when: upgrade_dpkg_audit_after.stdout | length > 0
+
+    - name: Docker daemon responds
+      ansible.builtin.command:
+        cmd: docker info
+      changed_when: false
+
+    - name: Check whether the compose stack is deployed
+      ansible.builtin.stat:
+        path: "{{ base_dir }}/docker-compose.yml"
+      register: upgrade_compose_file
+
+    - name: List stack services
+      ansible.builtin.command:
+        cmd: docker compose ps --services
+        chdir: "{{ base_dir }}"
+      register: upgrade_all_services
+      changed_when: false
+      when: upgrade_compose_file.stat.exists
+
+    - name: Wait until every stack service is running
+      ansible.builtin.command:
+        cmd: docker compose ps --services --filter status=running
+        chdir: "{{ base_dir }}"
+      register: upgrade_running_services
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: (upgrade_running_services.stdout_lines | sort) == (upgrade_all_services.stdout_lines | sort)
+      when: upgrade_compose_file.stat.exists
+
+    - name: Rescue self-check passes
+      ansible.builtin.command:
+        cmd: /usr/local/sbin/rescue-check.sh
+      changed_when: false
+      when: rescue_check_enabled | default(false) | bool
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: >-
+          Upgrade {{ 'applied and rebooted' if upgrade_apt is changed else 'had nothing to do' }};
+          sshd, dropbear, dpkg, docker and
+          {{ upgrade_all_services.stdout_lines | default([]) | length }} stack service(s) verified.

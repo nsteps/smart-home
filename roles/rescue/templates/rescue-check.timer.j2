@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the rescue self-check every {{ rescue_check_interval }}
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec={{ rescue_check_interval }}
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
